@@ -819,7 +819,7 @@ class App(ctk.CTk):
         from deployer import CHAPTERS_DIR, LESSONS_DIR, CHAPTER_NUM_TO_NODE, CHAPTER_SLUGS
         generated = sum(
             1 for nid, ch in CHAPTER_NUM_TO_NODE.items()
-            if (CHAPTERS_DIR / f"ch{ch:02d}_{nid}.md").exists()
+            if (CHAPTERS_DIR / f"ch{int(ch):02d}_{nid}.md").exists()
         )
         deployed = sum(
             1 for nid in CHAPTER_NUM_TO_NODE
