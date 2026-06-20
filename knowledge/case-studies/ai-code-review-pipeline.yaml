@@ -1,0 +1,233 @@
+id: "KN-S-000004"
+type: Case Study
+name: "AI 代码审查流水线"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - case-study
+  - pipeline
+  - code-review
+  - ci-cd
+  - evaluation
+
+aliases:
+  - "AI Code Review"
+  - "代码审查 Agent"
+  - "PR Review Pipeline"
+
+summary: "将 AI 集成进 GitHub PR 审查流程的 Pipeline 架构：安全扫描 → 代码质量 → 架构一致性 → 综合报告，平均节省 40% 人工审查时间。"
+
+overview: |
+  将 AI 嵌入 GitHub Pull Request 工作流，
+  在人工 Code Review 之前自动完成：
+  - 安全漏洞扫描（SQL 注入、XSS、硬编码密钥等）
+  - 代码质量检查（复杂度、重复代码、命名规范）
+  - 架构一致性验证（是否符合团队的编码规范）
+  - 测试覆盖率分析
+
+  目标：人工 Reviewer 收到 AI 预审结果，
+  专注于"AI 无法判断"的业务逻辑和架构决策，
+  而非基础的格式/安全/质量问题。
+
+pipeline_design: |
+  ## Pipeline 设计（Pipeline Pattern）
+
+  PR 触发 → 并行分析阶段 → 综合阶段 → 输出
+
+  ┌─────────────────────────────────────────────────┐
+  │                  PR 触发（GitHub Webhook）        │
+  └─────────────────────┬───────────────────────────┘
+                        │ 并行执行
+         ┌──────────────┼──────────────┬─────────────┐
+         │              │              │             │
+  ┌──────▼──────┐ ┌─────▼──────┐ ┌────▼────┐ ┌─────▼──────┐
+  │安全扫描 Agent│ │质量分析    │ │规范检查 │ │测试覆盖    │
+  │(Security)   │ │Agent(Qual) │ │Agent    │ │Agent       │
+  └──────┬──────┘ └─────┬──────┘ └────┬────┘ └─────┬──────┘
+         │              │              │             │
+         └──────────────┴──────────────┴─────────────┘
+                                │ 汇总
+                    ┌───────────▼──────────────┐
+                    │    Report Agent（综合）   │
+                    │ 生成结构化 Review 报告    │
+                    └───────────┬──────────────┘
+                                │
+                    ┌───────────▼──────────────┐
+                    │    GitHub PR Comment      │
+                    │   + 严重问题自动阻塞 PR   │
+                    └──────────────────────────┘
+
+security_agent: |
+  ## 安全扫描 Agent
+
+  检测范围：
+  1. 硬编码密钥（API Key、密码、私钥）
+  2. SQL 注入风险（字符串拼接 SQL）
+  3. XSS 风险（未转义的用户输入直接渲染）
+  4. IDOR 风险（未验证所有权的对象访问）
+  5. 不安全的依赖（已知 CVE 的版本）
+
+  工具：
+  - search_secrets_patterns（正则扫描密钥）
+  - run_semgrep（静态分析安全规则）
+  - check_dependencies_cve（依赖漏洞数据库）
+  - search_knowledge_base（检索团队安全规范）
+
+  严重性分级：
+  - CRITICAL：硬编码密钥、SQL 注入 → 自动阻塞 PR
+  - HIGH：IDOR、XSS → 必须在 Review 中标注
+  - MEDIUM：不安全依赖（有修复版本）→ 建议修复
+  - LOW：安全最佳实践建议 → 信息性标注
+
+quality_agent: |
+  ## 代码质量 Agent
+
+  分析维度：
+  1. 圈复杂度（Cyclomatic Complexity）：> 10 需要重构
+  2. 函数长度：> 50 行需要拆分
+  3. 重复代码（DRY 违反）：相似度 > 80% 的代码块
+  4. 命名规范：变量/函数/类名是否符合团队规范
+
+  工具：
+  - run_radon（Python 圈复杂度分析）
+  - run_pylint（代码质量）
+  - detect_code_duplication（重复检测）
+
+convention_agent: |
+  ## 规范一致性 Agent（最依赖 RAG 的 Agent）
+
+  这个 Agent 的核心是将代码改动与团队的架构决策和编码规范比对：
+
+  RAG 知识库包含：
+  - 团队的 Coding Guidelines（50+ 页）
+  - 历史 ADR（架构决策记录）
+  - 重要 Code Review 讨论的摘要
+
+  典型检测：
+  - "这个模块直接操作数据库，违反了 Repository Pattern"
+  - "新的 API 端点没有遵循 REST 命名规范"
+  - "这里的错误处理方式和 ADR-003 规定不一致"
+
+  检索策略：
+  将新增代码作为查询，检索最相关的规范条目，
+  LLM 判断是否存在不一致。
+
+  这是规范文档的"活跃执行"：
+  规范不再是放在 Confluence 里没人看的文档，
+  而是每次 PR 都自动检查。
+
+report_agent: |
+  ## Report Agent（综合报告生成）
+
+  整合四个 Agent 的结果，生成结构化的 PR Comment：
+
+  输出格式：
+  ┌──────────────────────────────────────────┐
+  │  🤖 AI Code Review 自动报告              │
+  │                                          │
+  │  总体评估：⚠️ 需要关注（2 个 HIGH 问题）  │
+  │                                          │
+  │  🔴 CRITICAL（阻塞）                     │
+  │  └─ 第 42 行：发现硬编码 API Key         │
+  │                                          │
+  │  🟡 HIGH                                 │
+  │  ├─ auth.py:67: 可能存在 IDOR 风险       │
+  │  └─ utils.py:120: 函数复杂度 18，超出阈值│
+  │                                          │
+  │  ℹ️ 建议                                 │
+  │  └─ orders.py 违反 Repository Pattern   │
+  │                                          │
+  │  ✅ 通过检查                              │
+  │  ├─ 未检测到 SQL 注入风险                │
+  │  ├─ 依赖无已知 CVE                       │
+  │  └─ 测试覆盖率 84%（要求 ≥ 80%）         │
+  └──────────────────────────────────────────┘
+
+  自动阻塞逻辑：
+  if CRITICAL issues > 0:
+      github_api.block_pr_merge(reason="AI 检测到严重问题")
+  else:
+      github_api.request_human_review()
+
+model_routing_strategy: |
+  ## 各 Agent 的模型选择
+
+  | Agent | 模型 | 理由 |
+  |-------|------|------|
+  | 安全扫描 | GPT-4o | 安全误报代价高，需要强推理 |
+  | 质量分析 | GPT-4o-mini | 规则性检查，小模型足够 |
+  | 规范检查 | GPT-4o | 需要理解架构意图，复杂推理 |
+  | 报告综合 | GPT-4o-mini | 格式化输出，不需要强推理 |
+
+  安全 Agent 绝不用小模型：
+  一个被遗漏的安全漏洞进入生产的代价，
+  远超安全 Agent 多花的 LLM 费用。
+
+prompt_versioning: |
+  ## Prompt 版本控制（在此场景中尤为重要）
+
+  每个 Agent 的 Prompt 都存在 Git 仓库中：
+  prompts/
+  ├── security_agent_v2.3.txt    # 当前生产版本
+  ├── quality_agent_v1.8.txt
+  └── CHANGELOG.md
+
+  关键：安全 Prompt 的任何改动都需要：
+  1. 与旧版本并行运行 50 个 PR 的 A/B 测试
+  2. 计算 False Positive 和 False Negative 率
+  3. 新版本 FPR < 旧版本且 FNR < 旧版本才能部署
+
+evaluation_metrics: |
+  ## 系统评估指标
+
+  每月评估：
+  - 漏报率（False Negative Rate）：有多少真实问题被遗漏？目标 < 5%
+  - 误报率（False Positive Rate）：有多少 AI 报告的问题是误报？目标 < 20%
+  - 人工节省率：使用 AI Review 后，人工 Review 时间减少多少？目标 > 30%
+  - 覆盖率：PR 中人工发现的问题，有多少 AI 也发现了？目标 > 70%
+
+  黄金数据集：
+  从历史 PR 中选取 100 个有已知问题的 PR（人工标注），
+  定期运行评估，确保 Prompt 改动不导致性能退化。
+
+lessons_learned:
+  - lesson: "并行分析 > 串行分析"
+    detail: "四个 Agent 并行运行：总时间约 30 秒（最慢的那个）；如果串行则需要 90+ 秒，工程师早跑去干别的了"
+
+  - lesson: "CRITICAL 问题自动阻塞 PR 是信任的关键"
+    detail: "如果 AI 只是'建议'，工程师会忽略；自动阻塞让 AI Review 成为不可绕过的门禁"
+
+  - lesson: "规范 Agent 的误报率需要单独控制"
+    detail: "规范检查比安全检查更主观，误报率天然更高，需要更保守的阈值和更多人工样本校准"
+
+knowledge_nodes_covered:
+  - "KN-P-000007: Pipeline Pattern（串行 + 并行混合流程）"
+  - "KN-P-000009: Model Routing（不同 Agent 不同模型）"
+  - "KN-C-000033: RAG（规范知识库检索）"
+  - "KN-B-000001: Prompt Version Control（安全 Prompt 版本管理）"
+  - "KN-A-000002: AI Testing Pyramid（黄金数据集 + LLM-as-Judge）"
+  - "KN-B-000005: Secret Management（扫描硬编码密钥）"
+
+relationships:
+  demonstrates:
+    - id: "KN-P-000007"
+      note: "AI 代码审查是 Pipeline Pattern 的典型实现（多步顺序 + 并行优化）"
+    - id: "KN-B-000001"
+      note: "安全 Prompt 的 A/B 测试是 Prompt Version Control 的最佳实践"
+
+interview_points:
+  - "为什么四个 Agent 要并行执行而不是串行？并行带来什么工程挑战？"
+  - "安全 Agent 为什么不能用小模型？误报和漏报哪个更危险？"
+  - "规范 Agent 依赖 RAG 知识库——如果团队规范更新了，怎么保证系统同步？"
+  - "如何评估这个 AI Review 系统的质量？用什么指标？（L3+ 考察评估能力）"
+
+exam_points:
+  - "并行执行四个 Agent：30 秒 vs 串行 90+ 秒，Pipeline 设计关键"
+  - "CRITICAL 问题自动阻塞 PR：不只是建议，才能让 AI 成为真正的门禁"
+  - "安全 Agent 用大模型：漏报一个安全漏洞进生产的代价 >> 多花的 LLM 费用"
+  - "黄金数据集 100 个 PR：A/B 测试 Prompt 改动，防止性能退化"
+
+one_liner: "AI 代码审查 = 四个专业 Agent 并行审查（安全/质量/规范/测试）→ Report Agent 综合 → CRITICAL 自动阻塞 PR，Prompt 每次改动都要跑黄金数据集验证。"
+difficulty: advanced

@@ -1,0 +1,430 @@
+id: "KN-E-000005"
+type: Exercise
+name: "项目五：生产级 Agent Harness"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L3"
+difficulty: advanced
+tags:
+  - exercise
+  - production
+  - observability
+  - harness
+  - deployment
+
+summary: "将一个简单的 Agent 包装成生产可用的服务：添加 Trace ID 追踪、结构化日志、限速重试、成本监控、健康检查，对接 FastAPI 部署。预计完成时间：12-20 小时。"
+
+learning_objectives:
+  - "理解生产 Agent 系统需要的所有工程层"
+  - "实现 Agent Harness 的六个核心组件"
+  - "掌握结构化日志和 Trace ID 的设计"
+  - "学会 Token 成本监控和预算控制"
+  - "能够将 Agent 部署为生产 FastAPI 服务"
+
+prerequisites:
+  - "完成 KN-E-000003（Multi-Agent 练习）"
+  - "完成 KN-E-000004（安全加固练习）"
+  - "了解：KN-A-000001（Agent Harness）、KN-B-000002（Max Iteration Guard）"
+  - "Docker 基础（可选，用于容器化部署）"
+
+harness_architecture: |
+  ## Harness 架构目标
+
+  从这个：
+  result = agent.invoke({"messages": [user_message]})  # 裸跑
+
+  到这个：
+  result = await harness.run(agent, {"messages": [user_message]}, user_context)
+  # 自动具备：trace_id / 日志 / 重试 / 超时 / 成本追踪
+
+component_1_structured_logging: |
+  ## 组件 1：结构化日志系统
+
+  ```python
+  # logging_setup.py
+  import logging
+  import json
+  import sys
+  from datetime import datetime
+
+  class JSONFormatter(logging.Formatter):
+      """将日志格式化为机器可读的 JSON"""
+      def format(self, record: logging.LogRecord) -> str:
+          log_entry = {
+              "timestamp": datetime.utcnow().isoformat() + "Z",
+              "level": record.levelname,
+              "logger": record.name,
+              "message": record.getMessage(),
+          }
+          # 将 extra 字段合并进去
+          extra_fields = {k: v for k, v in record.__dict__.items()
+                         if k not in logging.LogRecord.__dict__
+                         and k not in ('message', 'asctime')}
+          log_entry.update(extra_fields)
+          return json.dumps(log_entry, ensure_ascii=False)
+
+  def setup_logging(level: str = "INFO") -> logging.Logger:
+      handler = logging.StreamHandler(sys.stdout)
+      handler.setFormatter(JSONFormatter())
+      logger = logging.getLogger("agent")
+      logger.addHandler(handler)
+      logger.setLevel(getattr(logging, level))
+      return logger
+
+  logger = setup_logging()
+
+  # 使用示例：
+  logger.info("agent.start", extra={
+      "trace_id": "abc123",
+      "user_id": "user_001",
+      "tenant_id": "tenant_a"
+  })
+  # 输出：{"timestamp":"2026-06-20T...", "level":"INFO",
+  #        "message":"agent.start", "trace_id":"abc123", ...}
+  ```
+
+component_2_token_counter: |
+  ## 组件 2：Token 成本追踪
+
+  ```python
+  # token_tracker.py
+  from dataclasses import dataclass, field
+  from typing import Dict
+
+  # OpenAI 当前定价（美元/1K tokens）
+  MODEL_PRICING = {
+      "gpt-4o": {"input": 0.005, "output": 0.015},
+      "gpt-4o-mini": {"input": 0.000150, "output": 0.000600},
+      "claude-3-5-sonnet": {"input": 0.003, "output": 0.015},
+  }
+
+  @dataclass
+  class TokenUsage:
+      model: str
+      prompt_tokens: int = 0
+      completion_tokens: int = 0
+
+      @property
+      def total_tokens(self) -> int:
+          return self.prompt_tokens + self.completion_tokens
+
+      @property
+      def estimated_cost_usd(self) -> float:
+          pricing = MODEL_PRICING.get(self.model, {"input": 0, "output": 0})
+          return (self.prompt_tokens * pricing["input"] +
+                  self.completion_tokens * pricing["output"]) / 1000
+
+  class CostTracker:
+      def __init__(self, budget_usd: float = 1.0):
+          self.budget_usd = budget_usd
+          self.usages: list[TokenUsage] = []
+
+      def record(self, model: str, prompt_tokens: int, completion_tokens: int):
+          usage = TokenUsage(model, prompt_tokens, completion_tokens)
+          self.usages.append(usage)
+
+          total_cost = self.total_cost_usd
+          if total_cost > self.budget_usd:
+              raise BudgetExceededException(
+                  f"成本 ${total_cost:.4f} 超出预算 ${self.budget_usd}"
+              )
+          return usage
+
+      @property
+      def total_cost_usd(self) -> float:
+          return sum(u.estimated_cost_usd for u in self.usages)
+
+      @property
+      def total_tokens(self) -> int:
+          return sum(u.total_tokens for u in self.usages)
+
+      def summary(self) -> dict:
+          return {
+              "total_tokens": self.total_tokens,
+              "total_cost_usd": round(self.total_cost_usd, 6),
+              "by_model": {
+                  model: sum(u.total_tokens for u in self.usages if u.model == model)
+                  for model in set(u.model for u in self.usages)
+              }
+          }
+
+  class BudgetExceededException(Exception):
+      pass
+  ```
+
+component_3_retry_with_backoff: |
+  ## 组件 3：指数退避重试
+
+  ```python
+  # retry.py
+  import asyncio
+  import random
+  from typing import TypeVar, Callable, Awaitable
+
+  T = TypeVar("T")
+
+  async def retry_with_backoff(
+      fn: Callable[[], Awaitable[T]],
+      max_retries: int = 3,
+      base_delay: float = 1.0,
+      jitter: bool = True,
+      retryable_errors: tuple = (Exception,)
+  ) -> T:
+      """指数退避重试：1s, 2s, 4s（加随机抖动防止雷群效应）"""
+      last_error = None
+
+      for attempt in range(max_retries):
+          try:
+              return await fn()
+          except retryable_errors as e:
+              last_error = e
+              if attempt == max_retries - 1:
+                  raise
+
+              delay = base_delay * (2 ** attempt)
+              if jitter:
+                  delay *= (0.5 + random.random())  # ±50% 抖动
+
+              logger.warning("agent.retry", extra={
+                  "attempt": attempt + 1,
+                  "max_retries": max_retries,
+                  "delay_seconds": round(delay, 2),
+                  "error": str(e)[:100]
+              })
+              await asyncio.sleep(delay)
+
+      raise last_error
+  ```
+
+component_4_full_harness: |
+  ## 组件 4：完整 Agent Harness
+
+  ```python
+  # agent_harness.py
+  import asyncio
+  import uuid
+  import time
+  from typing import Any
+
+  class AgentHarness:
+      def __init__(
+          self,
+          budget_usd: float = 1.0,
+          max_iterations: int = 15,
+          timeout: float = 300.0
+      ):
+          self.budget_usd = budget_usd
+          self.max_iterations = max_iterations
+          self.timeout = timeout
+
+      async def run(
+          self,
+          agent,
+          input_data: dict,
+          user_context: dict = None
+      ) -> dict:
+          trace_id = str(uuid.uuid4())[:8]
+          cost_tracker = CostTracker(self.budget_usd)
+          start_time = time.monotonic()
+          user_ctx = user_context or {}
+
+          logger.info("agent.start", extra={
+              "trace_id": trace_id,
+              **user_ctx
+          })
+
+          try:
+              async with asyncio.timeout(self.timeout):
+                  result = await retry_with_backoff(
+                      lambda: agent.ainvoke(
+                          input_data,
+                          config={"recursion_limit": self.max_iterations * 2}
+                      ),
+                      max_retries=3,
+                      retryable_errors=(Exception,)
+                  )
+          except asyncio.TimeoutError:
+              logger.error("agent.timeout", extra={
+                  "trace_id": trace_id,
+                  "elapsed_seconds": time.monotonic() - start_time
+              })
+              raise
+          except BudgetExceededException as e:
+              logger.error("agent.budget_exceeded", extra={
+                  "trace_id": trace_id,
+                  "cost_summary": cost_tracker.summary()
+              })
+              raise
+
+          elapsed = time.monotonic() - start_time
+          logger.info("agent.complete", extra={
+              "trace_id": trace_id,
+              "elapsed_ms": int(elapsed * 1000),
+              "cost_summary": cost_tracker.summary(),
+              **user_ctx
+          })
+          return result
+  ```
+
+component_5_fastapi_service: |
+  ## 组件 5：FastAPI 生产服务
+
+  ```python
+  # main.py
+  from fastapi import FastAPI, Depends
+  from contextlib import asynccontextmanager
+  import time
+
+  @asynccontextmanager
+  async def lifespan(app: FastAPI):
+      # 启动时：预热 Agent
+      logger.info("service.starting")
+      app.state.agent = create_react_agent(llm, tools)
+      app.state.harness = AgentHarness(budget_usd=0.5, timeout=120.0)
+      logger.info("service.ready")
+      yield
+      # 关闭时：清理资源
+      logger.info("service.shutting_down")
+
+  app = FastAPI(lifespan=lifespan)
+
+  @app.get("/health")
+  async def health_check():
+      """健康检查端点（监控系统探活）"""
+      return {
+          "status": "healthy",
+          "timestamp": time.time(),
+          "agent_ready": hasattr(app.state, "agent")
+      }
+
+  @app.post("/api/v1/chat")
+  async def chat(
+      request: ChatRequest,
+      token_data: TokenData = Depends(verify_jwt)
+  ):
+      masked_message, pii_found = detect_and_mask_pii(request.message)
+      try:
+          result = await app.state.harness.run(
+              app.state.agent,
+              {"messages": [{"role": "user", "content": masked_message}]},
+              user_context={
+                  "user_id": token_data.user_id,
+                  "tenant_id": token_data.tenant_id
+              }
+          )
+          return {
+              "response": result["messages"][-1].content,
+              "pii_detected": pii_found
+          }
+      except asyncio.TimeoutError:
+          from fastapi import HTTPException
+          raise HTTPException(status_code=504, detail="Agent 处理超时")
+  ```
+
+component_6_monitoring_dashboard: |
+  ## 组件 6：监控指标（选做）
+
+  ```python
+  # metrics.py（使用 Prometheus 客户端）
+  from prometheus_client import Counter, Histogram, Gauge
+
+  agent_requests_total = Counter(
+      "agent_requests_total",
+      "Total agent requests",
+      labelnames=["tenant_id", "status"]
+  )
+  agent_latency_seconds = Histogram(
+      "agent_latency_seconds",
+      "Agent request latency",
+      buckets=[0.5, 1, 2, 5, 10, 30, 60]
+  )
+  agent_cost_usd_total = Counter(
+      "agent_cost_usd_total",
+      "Total LLM cost in USD",
+      labelnames=["tenant_id", "model"]
+  )
+  ```
+
+load_testing: |
+  ## 压力测试（验证生产可靠性）
+
+  ```python
+  # load_test.py
+  import asyncio
+  import httpx
+  import time
+
+  async def single_request(client: httpx.AsyncClient, token: str) -> dict:
+      start = time.time()
+      resp = await client.post(
+          "http://localhost:8000/api/v1/chat",
+          json={"message": "计算 2 的 10 次方"},
+          headers={"Authorization": f"Bearer {token}"}
+      )
+      return {
+          "status": resp.status_code,
+          "latency": time.time() - start
+      }
+
+  async def load_test(concurrency: int = 10, total_requests: int = 50):
+      token = generate_test_token("test_user", "test_tenant")
+      async with httpx.AsyncClient(timeout=30) as client:
+          semaphore = asyncio.Semaphore(concurrency)
+          async def bounded_request():
+              async with semaphore:
+                  return await single_request(client, token)
+
+          results = await asyncio.gather(*[bounded_request() for _ in range(total_requests)])
+
+      latencies = [r["latency"] for r in results if r["status"] == 200]
+      errors = sum(1 for r in results if r["status"] != 200)
+      print(f"总请求：{total_requests}，错误：{errors}")
+      print(f"延迟 P50：{sorted(latencies)[len(latencies)//2]:.2f}s")
+      print(f"延迟 P99：{sorted(latencies)[int(len(latencies)*0.99)]:.2f}s")
+  ```
+
+deliverables:
+  - "✅ 完整的 agent_harness.py（六个组件全部实现）"
+  - "✅ FastAPI 服务运行截图（health check 返回 healthy）"
+  - "✅ 压力测试结果（10 并发，50 请求，P50/P99 延迟报告）"
+  - "✅ 结构化日志输出截图（JSON 格式，包含 trace_id）"
+  - "✅ 成本追踪报告（10 次请求的 Token 用量和预估费用）"
+
+reflection_questions:
+  - "如果 LLM API 连续失败 3 次，你的 Harness 会怎么处理？用户会看到什么？"
+  - "如何知道某个租户的 Agent 请求异常昂贵？需要什么告警机制？"
+  - "Trace ID 在多 Agent 系统中如何传递？如何确保整个调用链有统一的 trace_id？"
+
+extension_challenges:
+  - "对接 OpenTelemetry：将 trace_id 传递到 Jaeger 可视化追踪"
+  - "实现 Docker 容器化部署（Dockerfile + docker-compose.yml）"
+  - "添加 Prometheus + Grafana 监控面板（显示 QPS、P99 延迟、成本趋势）"
+
+knowledge_nodes_referenced:
+  - "KN-A-000001: Agent Harness"
+  - "KN-B-000002: Max Iteration Guard"
+  - "KN-C-000069: Token Budget"
+  - "KN-B-000004: JWT Auth"
+  - "KN-B-000003: PII Detection"
+
+relationships:
+  teaches:
+    - id: "KN-A-000001"
+      note: "本练习是 Agent Harness 架构的完整代码实现"
+  prerequisite:
+    - id: "KN-E-000004"
+      note: "需要先完成安全加固练习（JWT、PII 脱敏会被复用）"
+
+interview_points:
+  - "生产 Agent Harness 需要哪六个核心组件？各解决什么问题？"
+  - "为什么重试要用指数退避而不是固定间隔？什么是雷群效应？"
+  - "Token 成本追踪为什么不能用数据库，要用内存计数器？"
+
+exam_points:
+  - "六组件：结构化日志 + Token 计数 + 指数退避重试 + 全局超时 + 健康检查 + FastAPI 封装"
+  - "指数退避：1s, 2s, 4s + 随机抖动，防止多个请求同时重试（雷群效应）"
+  - "trace_id：每次 run() 生成 UUID，贯穿所有日志，是生产排查的关键索引"
+  - "/health 端点：监控系统探活，返回 agent_ready 状态"
+
+one_liner: "生产 Agent Harness = 六层工程包装：JSON 结构化日志 + Token 成本追踪 + 指数退避重试 + asyncio.timeout + FastAPI 封装 + /health 探活，让 Agent 从 Demo 变 Prod。"

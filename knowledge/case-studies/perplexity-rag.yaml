@@ -1,0 +1,217 @@
+id: "KN-S-000002"
+type: Case Study
+name: "Perplexity AI — 实时 RAG 搜索引擎架构"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2"
+tags:
+  - case-study
+  - rag
+  - search
+  - real-time
+  - citation
+
+aliases:
+  - "Perplexity"
+  - "AI Search Engine"
+
+summary: "Perplexity 是第一个真正成功的 AI 搜索引擎，核心是实时 RAG：每次查询实时爬取网页、提取内容、生成带引用的回答，2025 年估值超 90 亿美元。"
+
+overview: |
+  Perplexity 颠覆了传统搜索（返回链接列表）的范式，
+  转而直接回答问题并给出引用来源。
+  与 ChatGPT 的关键区别：实时搜索，非训练数据；
+  与 Google 的关键区别：直接给答案，非链接列表。
+
+  核心价值主张：
+  "给我答案，不是链接"（Answer, not links）
+
+architecture: |
+  用户查询
+    │
+    ▼
+  Query Understanding（查询理解/改写）
+    │
+    ▼
+  Web Search（实时搜索引擎 API：Bing/Google/自建）
+    │
+    ▼
+  Content Extraction（网页内容提取/清洗）
+    │
+    ▼
+  Reranking（相关性重排序）
+    │
+    ▼
+  LLM 生成（带引用标注的答案）
+    │
+    ▼
+  Citation Verification（引用验证）
+    │
+    ▼
+  结构化输出（答案 + 来源列表）
+
+query_understanding: |
+  ## 第一步：查询理解与改写
+
+  用户输入往往不是最优的搜索 Query，Perplexity 先做改写：
+
+  原始问题：「最近 AI 在医疗领域有什么新进展？」
+  改写后：
+    - "AI medical imaging breakthroughs 2025"
+    - "FDA approved AI medical devices 2025"
+    - "clinical AI deployment healthcare 2025"
+
+  改写策略：
+  1. 时间锚定：识别"最近""今年"并替换为具体时间范围
+  2. 英文化：将中文问题改写为英文（英文资料更丰富）
+  3. 拆分子问题：复杂问题拆成多个子查询并行搜索
+  4. 术语规范化：口语化表达 → 专业术语
+
+realtime_rag_vs_static_rag: |
+  ## 实时 RAG vs 静态 RAG（关键差异）
+
+  ┌─────────────────────────────────────────────────────┐
+  │              静态 RAG（企业知识库）                    │
+  │  文档 → 离线索引 → 向量数据库 → 检索 → 生成           │
+  │  优势：检索快（ms 级）；缺点：知识有时效性              │
+  └─────────────────────────────────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────┐
+  │              实时 RAG（Perplexity 模式）               │
+  │  查询 → 实时爬取 → 动态提取 → 即时生成                │
+  │  优势：信息永远最新；缺点：延迟高（2-5秒），成本高      │
+  └─────────────────────────────────────────────────────┘
+
+content_extraction: |
+  ## 网页内容提取的工程挑战
+
+  原始网页 HTML 包含大量噪声（导航栏、广告、评论...），
+  Perplexity 需要提取真正有用的内容：
+
+  技术栈：
+  1. Headless Browser（Playwright）：处理 JavaScript 渲染的动态网页
+  2. Readability 算法：提取主要文章内容，过滤导航/广告
+  3. 表格/代码识别：保留结构化内容（表格、代码块）
+  4. 去重：多个来源的重复内容只保留一份
+
+  噪声过滤策略：
+  - Cookie 横幅 / 订阅弹窗：CSS 选择器过滤
+  - 广告内容：关键词黑名单 + 位置启发式
+  - 评论区：通常在页面底部，按位置过滤
+
+citation_system: |
+  ## 引用系统（Perplexity 最核心的信任机制）
+
+  答案中每个事实声明都标注来源编号 [1][2][3]，
+  用户可以点击验证原始来源。
+
+  实现机制：
+  1. 生成时约束 LLM 在每个声明后插入 [N] 引用标记
+  2. 引用对齐：N 对应具体的来源 URL 和页面标题
+  3. 引用验证：检查引用的内容是否真的支持该声明（防幻觉）
+
+  引用的设计哲学：
+  引用不只是"看起来更专业"，它是 AI 系统可信度的基础设施：
+  用户可以自己验证，AI 无法编造有引用支撑的假信息。
+
+  引用质量分级：
+  - 高质量：政府网站 (.gov)、学术期刊、主流媒体
+  - 中等：技术博客、公司官网
+  - 低质量：论坛帖子、社交媒体（会降权或不引用）
+
+latency_optimization: |
+  ## 延迟优化（用户体验关键）
+
+  Perplexity 必须在 3-5 秒内给出完整答案（用户期待）：
+
+  1. 并行执行：
+     - 搜索 + 爬取并行（不等第一个网页爬完再爬第二个）
+     - 多个子查询同时搜索
+
+  2. 流式输出（Streaming）：
+     - LLM 生成开始立即流式输出
+     - 用户看到答案"打字"出来，感知延迟 < 1 秒
+
+  3. 预取（Prefetch）：
+     - 用户停顿 500ms 时开始预搜索
+     - 用户提交前已有部分结果
+
+  4. CDN 缓存：
+     - 热门查询（"今天天气"→"北京天气"）结果缓存 5 分钟
+     - 不同措辞的相同问题走语义缓存
+
+pro_search_mode: |
+  ## Pro Search：Agent 模式的 RAG
+
+  Perplexity Pro 的"深度研究"模式实际上是一个 Agent：
+
+  执行流程：
+  1. 初次搜索：获取主题概览
+  2. 识别知识空缺：分析哪些方面还不清楚
+  3. 追加搜索：针对知识空缺做补充搜索
+  4. 交叉验证：对重要事实在多个来源交叉确认
+  5. 综合报告：生成带完整引用的深度报告
+
+  这是 Pipeline Pattern + ReAct Pattern 的结合：
+  有预定义步骤（Pipeline），也有基于中间结果的动态搜索（ReAct）
+
+business_model_vs_tech: |
+  ## 商业模式与技术选择的联动
+
+  Perplexity 免费版 vs Pro ($20/月) 的技术差异：
+
+  免费版：
+  - 小模型（Perplexity 自训的 Sonar 模型）
+  - 基础搜索（1-2 轮）
+  - 无 Pro Search 模式
+
+  Pro 版：
+  - 大模型可选（GPT-4o / Claude）
+  - Pro Search（多轮 Agent 搜索）
+  - 文件上传（扩展到私有 RAG）
+
+lessons_learned:
+  - lesson: "引用是 AI 搜索的护城河"
+    detail: "其他 AI 聊天工具生成的答案无法验证，Perplexity 的引用系统让用户建立信任，这是差异化的核心"
+
+  - lesson: "实时 > 准确（对搜索场景）"
+    detail: "用户宁愿接受偶尔的错误，也不接受过时信息。Perplexity 选择了实时爬取而非静态知识库"
+
+  - lesson: "流式输出是 UX 的关键"
+    detail: "等待 5 秒才看到第一个字 vs 0.5 秒就开始'打字'，用户体验天壤之别，即使总时间相同"
+
+  - lesson: "Pro Search 证明了 Agent 模式的价值"
+    detail: "单次搜索能回答 70% 的问题，多轮 Agent 搜索能回答 95%，但成本增加 5x，价格分层是关键"
+
+knowledge_nodes_covered:
+  - "KN-C-000033: RAG（实时版本）"
+  - "KN-P-000007: Pipeline Pattern（搜索流程）"
+  - "KN-P-000005: ReAct Pattern（Pro Search Agent）"
+  - "KN-T-000003: Browser Automation（Headless 网页提取）"
+  - "KN-C-000070: Semantic Cache（热门查询缓存）"
+  - "KN-P-000009: Model Routing（免费版小模型 vs Pro 版大模型）"
+
+relationships:
+  demonstrates:
+    - id: "KN-C-000033"
+      note: "Perplexity 是实时 RAG 的最典型生产实现"
+    - id: "KN-P-000007"
+      note: "搜索→提取→重排→生成 是标准 Pipeline Pattern"
+    - id: "KN-T-000003"
+      note: "网页内容提取使用 Playwright Headless Browser"
+
+interview_points:
+  - "Perplexity 的实时 RAG 和企业静态 RAG 的核心区别是什么？"
+  - "引用系统如何帮助 Perplexity 建立用户信任？技术上如何实现？"
+  - "Perplexity 如何在保证实时性的同时优化延迟？"
+  - "Pro Search（深度研究）模式和普通搜索的技术差异是什么？（L3+ 考察）"
+
+exam_points:
+  - "实时 RAG = 每次查询动态爬取，信息最新；静态 RAG = 离线索引，检索快但有时效性"
+  - "引用系统：每个事实声明标注来源 [N]，用户可验证，是信任基础设施"
+  - "流式输出：0.5 秒开始打字，比等待 5 秒看完整答案体验好得多"
+  - "Pro Search = Pipeline（预定义步骤）+ ReAct（知识空缺驱动追加搜索）"
+
+one_liner: "Perplexity = 实时 RAG 搜索引擎：每次查询实时爬网 + 引用标注，引用系统是信任基础，流式输出是体验关键，Pro Search 是多轮 Agent RAG。"
+difficulty: intermediate

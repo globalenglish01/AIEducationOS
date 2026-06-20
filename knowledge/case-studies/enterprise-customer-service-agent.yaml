@@ -1,0 +1,204 @@
+id: "KN-S-000003"
+type: Case Study
+name: "企业客服 Agent 系统设计"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - case-study
+  - agent
+  - multi-agent
+  - human-in-the-loop
+  - enterprise
+
+aliases:
+  - "客服 Agent"
+  - "Customer Service Agent"
+  - "AI 客服系统"
+
+summary: "电商/SaaS 企业将 AI Agent 引入客服流程的架构方案：Supervisor-Worker 多 Agent 分诊 + Human-in-the-Loop 升级 + RAG 知识库，实现 70% 自动化率。"
+
+overview: |
+  这是一个综合性企业客服 AI 系统的架构案例，
+  覆盖从用户提交工单到问题解决的完整流程。
+  目标：
+  - 70% 问题由 AI 自动处理（无需人工介入）
+  - 15% 问题 AI 辅助人工处理
+  - 15% 复杂问题直接升级人工
+
+  关键约束：
+  - 不能让 AI 在没有授权的情况下执行退款等金融操作
+  - 所有 AI 回复必须基于知识库（防止幻觉）
+  - 响应时间：简单问题 < 3 秒，复杂问题 < 30 秒
+
+system_architecture: |
+  ┌──────────────────────────────────────────────────┐
+  │                   用户工单入口                     │
+  └────────────────────┬─────────────────────────────┘
+                       │
+  ┌────────────────────▼─────────────────────────────┐
+  │           Triage Agent（分诊 Supervisor）          │
+  │  - 分类问题类型：账单 / 技术 / 投诉 / 退款 / 其他  │
+  │  - 判断复杂度：简单 / 中等 / 复杂                  │
+  │  - 决定路由：派给 Worker Agent 或升级人工          │
+  └───────┬──────────────┬────────────────┬──────────┘
+          │              │                │
+  ┌───────▼───┐  ┌───────▼────┐  ┌───────▼────────┐
+  │FAQ Agent  │  │Order Agent │  │Escalation Agent│
+  │(技术问题) │  │(订单/退款) │  │(升级人工)      │
+  │工具：RAG  │  │工具：订单DB│  │工具：工单系统  │
+  │           │  │（读+有限写）│  │创建人工工单    │
+  └───────────┘  └─────┬──────┘  └────────────────┘
+                       │
+              ┌────────▼────────┐
+              │Human Approval   │
+              │（退款 > $100）  │
+              │等待人工审批     │
+              └─────────────────┘
+
+agent_roles: |
+  ## Agent 角色设计（Supervisor-Worker Pattern）
+
+  ### Triage Agent（主控）
+  - 职责：分析工单，决定路由
+  - 工具：read_ticket（读工单），classify_intent（分类意图）
+  - 模型：GPT-4o（需要强推理能力）
+  - 不执行具体操作，只做决策
+
+  ### FAQ Agent（Worker）
+  - 职责：回答常见技术问题（功能使用、账号设置等）
+  - 工具：search_knowledge_base（RAG 检索产品文档）
+  - 模型：GPT-4o-mini（简单问题，省成本）
+  - 限制：只能读取知识库，不能修改任何用户数据
+
+  ### Order Agent（Worker）
+  - 职责：处理订单查询、物流状态、退款申请
+  - 工具：get_order_info（查订单）、get_logistics_info（查物流）、
+           process_refund（退款，需要审批）
+  - 模型：GPT-4o（需要准确理解订单状态）
+  - 限制：$100 以下退款自动处理；$100 以上需要人工审批
+
+  ### Escalation Agent（Worker）
+  - 职责：生成升级工单，附上 AI 已收集的上下文
+  - 工具：create_human_ticket（创建人工工单）
+  - 作用：减少人工处理时的重复信息收集
+
+human_in_the_loop: |
+  ## Human-in-the-Loop 设计（三个介入点）
+
+  ### 介入点 1：高金额退款审批
+  触发条件：退款金额 > $100
+  流程：
+  - Order Agent 生成退款建议（金额、原因、订单详情）
+  - 系统创建审批工单，推送给值班人员
+  - 人工在 Dashboard 查看并点击"批准/拒绝"
+  - Order Agent 收到审批结果，执行退款或通知用户
+
+  ### 介入点 2：高情绪用户升级
+  触发条件：情绪分析检测到愤怒/投诉级别
+  流程：
+  - Triage Agent 识别高情绪用户（关键词 + 语气分析）
+  - 立即路由到人工客服（不再尝试 AI 处理）
+  - AI 预生成上下文摘要给人工参考
+
+  ### 介入点 3：低置信度回答
+  触发条件：RAG 检索置信度 < 0.7（没有足够相关知识）
+  流程：
+  - FAQ Agent 检测到问题超出知识库范围
+  - 不强行回答，改为"我将这个问题升级给专业团队"
+  - 创建人工工单并标注"知识库空白"
+
+rag_knowledge_base: |
+  ## 知识库 RAG 设计
+
+  知识库内容：
+  - 产品使用文档（500+ 篇，实时同步）
+  - 常见问题 FAQ（300+ 条，运营手动维护）
+  - 退款/售后政策（法律文件，月度更新）
+  - 历史解决方案（过去 2 年的成功工单，匿名化处理）
+
+  Chunking 策略：
+  - 产品文档：按章节分块，500 tokens，overlap 100
+  - FAQ：每条 FAQ 单独一个 Chunk（保持完整性）
+  - 政策文件：按条款分块，保留条款编号作为 metadata
+
+  检索策略：
+  - Hybrid Search（向量 + BM25 关键词）
+  - metadata 过滤：按问题类型过滤相关文档（技术问题不搜退款政策）
+  - Reranking：Cohere Rerank 精排 Top-K
+
+  质量监控：
+  - 每周运行 RAGAS 评测（Context Precision / Answer Faithfulness）
+  - 低分问题人工审核，补充知识库
+
+memory_design: |
+  ## 对话记忆设计
+
+  单次工单内记忆（Short-term）：
+  - 整个对话历史存在工单的 thread 中
+  - 每个 Agent 调用时注入相关历史（最近 5 条）
+
+  跨工单记忆（Long-term，谨慎设计）：
+  - 用户的历史退款记录（防止恶意退款）
+  - 用户的历史问题类型（个性化路由）
+  - 注意：不使用 AI 对用户的"评价"（隐私/公平性考虑）
+
+cost_breakdown: |
+  ## 成本分析
+
+  假设：每日 10,000 个工单
+
+  | 场景 | 占比 | Agent | 平均 Token | 日成本估算 |
+  |------|------|-------|-----------|----------|
+  | FAQ（简单） | 50% | FAQ Agent (mini) | 1,500 | $22.5 |
+  | 订单查询 | 30% | Order Agent (4o) | 2,000 | $300 |
+  | 退款审批 | 10% | Order Agent + 人工 | 2,500 | $125 |
+  | 人工升级 | 10% | Escalation Agent | 500 | $2.5 |
+  | 总计 | 100% | | | ~$450/天 |
+
+  对比：10 名人工客服 × $200/天 = $2,000/天
+  AI 方案节省约 77%，同时响应速度提升 10x
+
+lessons_learned:
+  - lesson: "Triage 是系统的核心，不是工具最多的 Agent"
+    detail: "Triage Agent 的分类准确率决定了整个系统的用户体验。把最好的模型给 Triage，不要省这点钱"
+
+  - lesson: "退款等高风险操作必须有人工节点"
+    detail: "AI 做错一次退款比多 10 倍人工审批成本更贵（法律风险 + 用户信任）"
+
+  - lesson: "情绪检测比意图分类更重要"
+    detail: "能准确回答技术问题的 AI 面对愤怒用户可能让情况更糟——不如直接给人工"
+
+  - lesson: "知识库质量 > 模型质量"
+    detail: "用 GPT-4o-mini + 高质量 RAG 比用 GPT-4o + 差 RAG 效果更好，成本更低"
+
+knowledge_nodes_covered:
+  - "KN-P-000006: Supervisor-Worker Pattern（Triage + Worker Agent）"
+  - "KN-C-000024: Human-in-the-Loop（三个介入点）"
+  - "KN-C-000033: RAG（知识库检索）"
+  - "KN-P-000009: Model Routing（不同 Agent 用不同模型）"
+  - "KN-C-000068: Memory Isolation（每个用户对话隔离）"
+  - "KN-C-000074: Multi-tenancy（多租户企业 SaaS 部署）"
+
+relationships:
+  demonstrates:
+    - id: "KN-P-000006"
+      note: "Triage Agent（Supervisor）+ FAQ/Order/Escalation Agent（Worker）是标准 Supervisor-Worker"
+    - id: "KN-C-000024"
+      note: "三个 Human-in-the-Loop 介入点：高金额退款、高情绪用户、低置信度回答"
+
+interview_points:
+  - "这个系统中 Human-in-the-Loop 有几个介入点？各自的触发条件是什么？"
+  - "为什么 Triage Agent 要用大模型，而 FAQ Agent 可以用小模型？"
+  - "如何设计 RAG 知识库以覆盖客服场景的不同文档类型？"
+  - "如何评估这个 AI 客服系统是否达到了生产质量？（L3+ 考察评估能力）"
+
+exam_points:
+  - "架构：Triage（Supervisor）→ FAQ/Order/Escalation（Worker），各 Agent 最小权限"
+  - "Human-in-the-Loop 三点：高金额退款 + 高情绪用户 + 低置信度（三选一都对）"
+  - "FAQ Agent 用小模型（省成本）；Triage 用大模型（准确性最重要）"
+  - "情绪检测升级优先于意图处理：愤怒用户直接给人工，不强行 AI 处理"
+
+one_liner: "企业客服 Agent = Triage Supervisor 分诊 + 专业 Worker 执行 + 三个 Human-in-the-Loop 节点，70% 自动化，退款/高情绪/低置信度三种情况必须人工介入。"
+difficulty: intermediate

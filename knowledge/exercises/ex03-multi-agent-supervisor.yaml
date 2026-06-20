@@ -1,0 +1,302 @@
+id: "KN-E-000003"
+type: Exercise
+name: "项目三：设计 Supervisor-Worker 多 Agent 系统"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+difficulty: intermediate
+tags:
+  - exercise
+  - multi-agent
+  - supervisor
+  - langgraph
+
+summary: "构建一个研究+写作的双 Worker + Supervisor 多 Agent 系统，理解任务分解、专业化分工、结果汇总的完整工程实现。预计完成时间：8-12 小时。"
+
+learning_objectives:
+  - "理解 Supervisor-Worker 多 Agent 架构的代码实现"
+  - "掌握如何设计每个 Agent 的 System Prompt 和工具权限"
+  - "学会调试多 Agent 系统（追踪任务分配和结果传递）"
+  - "理解何时用 Multi-Agent，何时一个 Agent 就够"
+
+prerequisites:
+  - "完成 KN-E-000002（ReAct Agent 练习）"
+  - "了解：KN-P-000006（Supervisor-Worker Pattern）"
+
+project_goal: |
+  ## 项目目标
+
+  构建一个"AI 技术研究助手"：
+  用户提出研究主题 → Supervisor 分析 → 派给专业 Worker → 输出完整报告
+
+  架构：
+  用户输入
+    → Supervisor Agent（任务分解 + 调度）
+      → Research Worker（搜索信息、收集资料）
+      → Writer Worker（整理、撰写报告）
+    → 最终报告返回给用户
+
+task_1_define_workers: |
+  ## 任务 1：定义两个专业化 Worker
+
+  ```python
+  from langgraph.prebuilt import create_react_agent
+  from langchain_openai import ChatOpenAI
+  from langchain_core.tools import tool
+  import requests
+
+  llm_large = ChatOpenAI(model="gpt-4o", temperature=0)
+  llm_small = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
+  # 工具定义
+  @tool
+  def search_information(query: str) -> str:
+      """搜索关于特定主题的信息"""
+      url = f"https://api.duckduckgo.com/?q={query}&format=json&no_html=1"
+      resp = requests.get(url, timeout=5)
+      data = resp.json()
+      abstract = data.get("AbstractText", "")
+      related = [r["Text"] for r in data.get("RelatedTopics", [])[:5]]
+      results = []
+      if abstract:
+          results.append(f"主要信息：{abstract}")
+      if related:
+          results.append("相关信息：\n" + "\n".join(related))
+      return "\n".join(results) if results else "未找到相关信息"
+
+  @tool
+  def format_as_markdown(content: str, title: str) -> str:
+      """将内容整理为 Markdown 格式的报告"""
+      return f"# {title}\n\n{content}"
+
+  # Worker 1：研究专家（只有搜索工具）
+  research_worker = create_react_agent(
+      llm_large,                        # 用大模型：研究需要理解复杂信息
+      tools=[search_information],
+      name="research_worker",
+      prompt="""你是专业研究员，负责收集和整理信息。
+      工作规则：
+      1. 针对主题进行 2-3 次不同角度的搜索
+      2. 整合搜索结果，提取关键事实
+      3. 以结构化方式输出：背景、现状、趋势、关键数据
+      4. 只输出信息，不写报告（那是 Writer 的工作）
+      5. 如果某个搜索没有找到有用信息，换一个搜索词再试"""
+  )
+
+  # Worker 2：写作专家（只有格式化工具）
+  writer_worker = create_react_agent(
+      llm_small,                        # 用小模型：写作是格式化任务，省成本
+      tools=[format_as_markdown],
+      name="writer_worker",
+      prompt="""你是技术写作专家，负责将研究材料整理成专业报告。
+      工作规则：
+      1. 基于提供的研究材料写报告，不要添加没有依据的内容
+      2. 报告结构：执行摘要（3-5句）/ 主要发现（3-5点）/ 结论
+      3. 使用清晰的 Markdown 格式
+      4. 保持客观，避免过度修饰"""
+  )
+  ```
+
+task_2_create_supervisor: |
+  ## 任务 2：创建 Supervisor
+
+  ```python
+  from langgraph_supervisor import create_supervisor
+
+  supervisor = create_supervisor(
+      llm_large,                          # Supervisor 用大模型
+      agents=[research_worker, writer_worker],
+      prompt="""你是研究项目主管，负责协调研究和写作工作。
+
+      工作流程（严格按此顺序）：
+      1. 分析用户的研究主题
+      2. 派给 research_worker 收集相关信息
+      3. 将 research_worker 的结果传给 writer_worker 撰写报告
+      4. 汇总最终报告返回给用户
+
+      注意：
+      - 不要自己做研究或写作，只负责协调
+      - research_worker 完成后再派 writer_worker
+      - 如果 research_worker 的结果不够充分，让他再补充一次
+      """,
+      output_mode="last_message"
+  ).compile()
+  ```
+
+  如果 langgraph-supervisor 包不可用，用手动实现：
+
+  ```python
+  from langgraph.graph import StateGraph, START, END
+  from typing import TypedDict, Annotated
+  import operator
+
+  class SupervisorState(TypedDict):
+      messages: Annotated[list, operator.add]
+      research_result: str
+      final_report: str
+
+  def supervisor_node(state: SupervisorState) -> dict:
+      """Supervisor：决定下一步派哪个 Worker"""
+      msgs = state["messages"]
+      last_msg = msgs[-1].content if msgs else ""
+
+      # 简单路由逻辑：
+      if not state.get("research_result"):
+          return {"next": "research"}  # 先研究
+      elif not state.get("final_report"):
+          return {"next": "write"}     # 再写作
+      else:
+          return {"next": END}         # 完成
+
+  # 构建图
+  graph = StateGraph(SupervisorState)
+  graph.add_node("supervisor", supervisor_node)
+  graph.add_node("research", lambda s: {"research_result": run_research(s)})
+  graph.add_node("write", lambda s: {"final_report": run_writing(s)})
+  graph.add_edge(START, "supervisor")
+  graph.add_conditional_edges("supervisor",
+                               lambda s: s.get("next"),
+                               {"research": "research", "write": "write", END: END})
+  graph.add_edge("research", "supervisor")
+  graph.add_edge("write", "supervisor")
+  app = graph.compile()
+  ```
+
+task_3_test_system: |
+  ## 任务 3：测试多 Agent 系统
+
+  ```python
+  test_topics = [
+      "大型语言模型的量化技术（Quantization）",
+      "2025 年 AI Agent 框架对比"
+  ]
+
+  for topic in test_topics:
+      print(f"\n{'='*50}")
+      print(f"研究主题：{topic}")
+      print('='*50)
+
+      result = supervisor.invoke({
+          "messages": [{"role": "user", "content": f"请研究并写一份关于'{topic}'的报告"}]
+      })
+      print(result["messages"][-1].content)
+  ```
+
+  观察点：
+  - Supervisor 是否正确地先派了 research_worker？
+  - Writer 是否基于 research 结果写作（而非编造）？
+  - 整个流程花了多少时间？调用了几次 LLM？
+
+task_4_add_human_checkpoint: |
+  ## 任务 4：添加 Human-in-the-Loop（进阶）
+
+  ```python
+  from langgraph.checkpoint.memory import MemorySaver
+
+  # 在 Supervisor 决定写作之前，让人工确认研究结果
+  checkpointer = MemorySaver()
+  supervisor_with_hitl = supervisor.compile(
+      checkpointer=checkpointer,
+      interrupt_before=["write"]   # 写作节点前暂停
+  )
+
+  config = {"configurable": {"thread_id": "research-001"}}
+
+  # 第一次运行：执行研究，在 write 节点前暂停
+  result = supervisor_with_hitl.invoke(
+      {"messages": [{"role": "user", "content": "研究 RAG 技术发展现状"}]},
+      config=config
+  )
+
+  # 查看研究结果
+  print("研究完成，等待确认：")
+  print(result["messages"][-1].content)
+
+  # 人工确认后继续（或修改研究方向）
+  human_feedback = input("\n研究结果满意吗？(y/n)：")
+  if human_feedback == 'y':
+      # 继续到写作阶段
+      final = supervisor_with_hitl.invoke(None, config=config)
+      print("\n最终报告：")
+      print(final["messages"][-1].content)
+  else:
+      # 让 research_worker 重新研究（更换角度）
+      new_direction = input("请指定新的研究方向：")
+      final = supervisor_with_hitl.invoke(
+          {"messages": [{"role": "user", "content": f"重新研究，重点关注：{new_direction}"}]},
+          config=config
+      )
+  ```
+
+comparison_task: |
+  ## 对比任务：Multi-Agent vs 单 Agent
+
+  用相同的问题分别用单 Agent 和 Multi-Agent 解决：
+
+  ```python
+  # 单 Agent：一个 Agent 同时有搜索和写作工具
+  single_agent = create_react_agent(
+      llm_large,
+      tools=[search_information, format_as_markdown],
+      prompt="你是全能研究助手，负责研究并撰写报告"
+  )
+
+  # Multi-Agent：Supervisor + Research + Writer
+  # ... （上面已实现）
+
+  # 比较：
+  # 1. 哪个回答质量更好？
+  # 2. 哪个成本更低？（统计 Token 消耗）
+  # 3. 哪个更容易调试？（出问题时更容易定位）
+  ```
+
+deliverables:
+  - "✅ 可运行的 Supervisor-Worker 系统（两个测试主题的报告）"
+  - "✅ Human-in-the-Loop 测试截图"
+  - "✅ 单 Agent vs Multi-Agent 对比报告（200-300 字）"
+  - "✅ 系统的 LangGraph 图结构截图（用 app.get_graph().draw_mermaid_png()）"
+
+common_mistakes:
+  - mistake: "Supervisor 的 Prompt 没有说明任务顺序，导致 Worker 顺序混乱"
+    fix: "明确写'先派 research_worker，得到结果后再派 writer_worker'"
+
+  - mistake: "两个 Worker 使用完全相同的 System Prompt"
+    fix: "每个 Worker 的 Prompt 必须明确职责边界，否则它们会做重复的工作"
+
+  - mistake: "Writer Worker 也给了搜索工具（工具权限没有最小化）"
+    fix: "Writer 不需要搜索，只需要整理；给额外工具会让 LLM 倾向于调用不必要的工具"
+
+extension_challenges:
+  - "添加第三个 Worker：Fact-Checker Agent，验证 Writer 报告中的关键事实"
+  - "实现并行研究：让 research_worker 同时搜索 3 个不同方面（需要 LangGraph 并行节点）"
+  - "为 Supervisor 添加预算控制：总 Token 消耗超过阈值时停止"
+
+knowledge_nodes_referenced:
+  - "KN-P-000006: Supervisor-Worker Pattern"
+  - "KN-F-000002: LangGraph"
+  - "KN-C-000024: Human-in-the-Loop"
+
+relationships:
+  teaches:
+    - id: "KN-P-000006"
+      note: "本练习是 Supervisor-Worker Pattern 的完整实现"
+  prerequisite:
+    - id: "KN-E-000002"
+      note: "需要先完成 ReAct Agent 练习"
+  next_exercise:
+    - id: "KN-E-000004"
+      note: "完成后进阶到 AI 系统安全加固"
+
+interview_points:
+  - "能描述 Supervisor 和 Worker 各自的 System Prompt 设计原则吗？"
+  - "为什么 Writer Worker 不应该有搜索工具？"
+  - "通过这个练习，你何时会选 Multi-Agent 而非单 Agent？"
+
+exam_points:
+  - "Supervisor 不执行，只调度：System Prompt 必须说明'不要自己做研究或写作'"
+  - "Worker 最小工具：Research Worker 只有搜索，Writer 只有格式化"
+  - "Human-in-the-Loop：interrupt_before=['node_name']，invoke(None) 继续"
+  - "Multi-Agent 适合：子任务明确可分、专业化能提升质量、需要并行加速"
+
+one_liner: "Supervisor-Worker：research_worker 搜集，writer_worker 整理，Supervisor 调度，interrupt_before 实现人工审核，三个 Agent 各司其职，Prompt 是行为的边界。"

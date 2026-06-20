@@ -1,0 +1,240 @@
+id: "KN-S-000005"
+type: Case Study
+name: "多租户 AI SaaS 平台安全架构"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L3"
+tags:
+  - case-study
+  - security
+  - multi-tenancy
+  - cost
+  - governance
+
+aliases:
+  - "AI SaaS 多租户"
+  - "Multi-tenant AI Platform"
+
+summary: "面向企业客户的多租户 AI SaaS 平台完整安全架构：数据隔离、成本归因、配额管理、合规审计，支持 1000+ 企业租户共享基础设施。"
+
+overview: |
+  这是一个「AI SaaS 平台」的架构案例：
+  平台服务 1000+ 企业客户（租户），每个租户有自己的：
+  - 数据（对话历史、知识库、用户数据）
+  - 配额（月度 Token 预算、并发限制）
+  - 合规要求（部分客户需要数据不出境）
+  - 计费（按实际使用量计费）
+
+  核心挑战：共享基础设施 + 强隔离 + 细粒度计费
+
+identity_and_auth: |
+  ## 身份认证与授权
+
+  ### 三层身份体系
+  1. 平台级（Platform）：SaaS 平台自身
+  2. 租户级（Tenant）：企业客户（如"ABC公司"）
+  3. 用户级（User）：租户员工（如"张三@ABC公司"）
+
+  JWT Payload 设计：
+  {
+    "sub": "user_uuid",           # 用户唯一 ID
+    "tenant_id": "tenant_abc",    # 租户 ID（隔离关键）
+    "tenant_name": "ABC 公司",
+    "roles": ["ai:user"],         # 平台角色
+    "tenant_roles": ["admin"],    # 租户内角色
+    "quota": {
+      "monthly_tokens": 1000000,  # 月度 Token 配额
+      "daily_tokens": 50000,      # 日配额
+      "max_concurrent": 10        # 最大并发请求数
+    },
+    "data_residency": "cn-east",  # 数据驻留区域
+    "exp": 1750000000
+  }
+
+data_isolation: |
+  ## 数据隔离（四层防线）
+
+  ### 第一层：应用层隔离
+  所有数据库查询必须带 tenant_id 条件：
+
+  # ❌ 危险
+  SELECT * FROM conversations WHERE user_id = ?
+
+  # ✅ 安全
+  SELECT * FROM conversations
+  WHERE user_id = ? AND tenant_id = ?
+
+  ### 第二层：数据库行级安全（RLS）
+  PostgreSQL Row-Level Security 作为兜底：
+
+  -- 即使应用层忘了加 tenant_id，RLS 也会阻止
+  CREATE POLICY tenant_isolation ON conversations
+    USING (tenant_id = current_setting('app.tenant_id'));
+
+  SET app.tenant_id = 'tenant_abc';  -- 每次连接时设置
+  -- 现在所有查询自动过滤，不可能访问其他租户数据
+
+  ### 第三层：向量数据库命名空间
+  每个租户在向量数据库中有独立的命名空间：
+
+  vectorstore.similarity_search(
+      query,
+      namespace=f"tenant_{tenant_id}",  # Pinecone Namespace
+      filter={"tenant_id": tenant_id}
+  )
+
+  ### 第四层：存储桶隔离
+  每个租户的文件存在独立的 S3 路径下：
+  s3://ai-saas-files/tenants/{tenant_id}/uploads/...
+  IAM 策略确保只有对应租户的服务可以访问
+
+cost_attribution: |
+  ## 成本归因与配额管理
+
+  ### Token 计量
+  每次 LLM 调用都精确记录：
+
+  async def track_llm_call(
+      tenant_id: str,
+      user_id: str,
+      model: str,
+      prompt_tokens: int,
+      completion_tokens: int
+  ):
+      total_tokens = prompt_tokens + completion_tokens
+
+      # 1. 实时累计（Redis，毫秒级）
+      redis.incrby(f"tokens:{tenant_id}:daily", total_tokens)
+      redis.incrby(f"tokens:{tenant_id}:{user_id}:monthly", total_tokens)
+
+      # 2. 检查配额
+      daily_used = redis.get(f"tokens:{tenant_id}:daily")
+      if daily_used > tenant_quota.daily_tokens:
+          raise QuotaExceededException("日配额已用完")
+
+      # 3. 异步写入账单数据库（不阻塞主流程）
+      asyncio.create_task(
+          write_billing_record(tenant_id, user_id, model,
+                               prompt_tokens, completion_tokens)
+      )
+
+  ### 配额分级
+  | 套餐 | 月度 Token | 日配额 | 并发 | 模型 |
+  |------|-----------|--------|------|------|
+  | Starter | 500K | 20K | 3 | gpt-4o-mini |
+  | Pro | 5M | 200K | 20 | gpt-4o |
+  | Enterprise | 50M | 2M | 100 | 可选 |
+
+rate_limiting: |
+  ## 限速设计（三层限速）
+
+  ### 第一层：租户级并发限制
+  每个租户最多同时处理 N 个请求（防单租户打爆系统）：
+
+  # Redis 令牌桶
+  async def acquire_tenant_slot(tenant_id: str, max_concurrent: int) -> bool:
+      key = f"concurrent:{tenant_id}"
+      current = redis.get(key) or 0
+      if current >= max_concurrent:
+          raise ConcurrencyLimitException("并发数已达上限")
+      redis.incr(key)
+      redis.expire(key, 30)  # 30 秒过期（防死锁）
+      return True
+
+  ### 第二层：每分钟请求限速（RPM）
+  ### 第三层：全局 OpenAI API 限速（Rate Limit 重试）
+
+compliance_and_audit: |
+  ## 合规与审计
+
+  ### 数据驻留（Data Residency）
+  金融/医疗/政府客户可能要求数据不出境：
+
+  数据路由逻辑：
+  if tenant.data_residency == "cn-east":
+      llm = AzureOpenAI(region="China East")  # Azure 中国区
+  else:
+      llm = OpenAI()  # 默认全球
+
+  ### 审计日志
+  所有 AI 交互必须留下不可篡改的审计记录：
+
+  每条审计记录包含：
+  - tenant_id + user_id
+  - 请求时间戳（UTC）
+  - 用户输入（或其哈希，敏感内容场景）
+  - AI 输出
+  - 使用的模型和版本
+  - Token 消耗
+  - 响应延迟
+
+  存储：写入只追加的 Append-Only 存储（S3 + Object Lock），
+  保留 7 年（满足 GDPR/SOC2 要求），
+  支持租户审计查询。
+
+  ### GDPR 数据删除权
+  租户或用户请求删除数据时：
+  1. 删除数据库中的对话记录（带 tenant_id + user_id）
+  2. 删除向量数据库中该用户的所有向量
+  3. 删除 S3 中该用户的文件
+  4. 审计日志中保留删除事件记录（不保留原始内容）
+  整个流程 < 72 小时（GDPR 要求）
+
+observability: |
+  ## 可观测性设计
+
+  每个请求携带 trace_id，串联：
+  - API Gateway → Agent Harness → LLM 调用 → 数据库查询
+
+  关键监控指标：
+  - 每租户 Token 消耗趋势（发现异常消耗）
+  - P99 响应延迟（SLA 保证）
+  - LLM 错误率（Rate Limit / 超时）
+  - 配额使用率分布（预警接近上限的租户）
+
+  告警规则：
+  - 某租户日消耗 > 日配额 90%：提前通知
+  - 某用户请求量突增 5x：异常检测
+  - 全局 P99 延迟 > 5 秒：自动触发告警
+
+lessons_learned:
+  - lesson: "RLS 是隔离的最后一道防线，不是第一道"
+    detail: "不要依赖数据库 RLS 做主要隔离，应用层必须先加 tenant_id 条件。RLS 只是防止代码 Bug 导致的越权"
+
+  - lesson: "配额检查用 Redis 而非数据库"
+    detail: "Token 计数是高频操作，每次 LLM 调用都要更新。MySQL 扛不住；Redis 原子 INCR 是正确答案"
+
+  - lesson: "审计日志和业务数据严格分离"
+    detail: "业务数据可以删除（用户行使 GDPR 权利），但审计日志不能删除。两者用不同存储系统"
+
+knowledge_nodes_covered:
+  - "KN-C-000074: Multi-tenancy Architecture（四层隔离）"
+  - "KN-B-000004: JWT Auth（三层身份 + 配额写入 Token）"
+  - "KN-C-000068: Memory Isolation（租户/用户级隔离）"
+  - "KN-C-000069: Token Budget（配额管理）"
+  - "KN-C-000079: AI Compliance（GDPR 数据删除权）"
+  - "KN-A-000001: Agent Harness（限速/重试/追踪）"
+  - "KN-X-000002: IDOR（RLS 作为防 IDOR 的最后防线）"
+
+relationships:
+  demonstrates:
+    - id: "KN-C-000074"
+      note: "多租户 AI SaaS 是 Multi-tenancy Architecture 的完整工程实现"
+    - id: "KN-B-000004"
+      note: "JWT 携带 tenant_id + quota，是整个系统身份和配额管理的基础"
+
+interview_points:
+  - "多租户 AI 系统的数据隔离如何实现？如果应用层漏掉 tenant_id 条件怎么办？"
+  - "Token 配额管理为什么用 Redis 而不用数据库？"
+  - "GDPR 数据删除权如何在 AI 系统中实现？审计日志为什么不能删除？"
+  - "数据驻留（Data Residency）要求如何影响 AI 系统的架构设计？（L3+ 考察）"
+
+exam_points:
+  - "四层隔离：应用层 WHERE tenant_id + DB RLS + 向量 DB Namespace + S3 路径"
+  - "配额计数：Redis INCR（高频原子操作），异步写入账单数据库"
+  - "GDPR 删除：业务数据删除，审计日志保留删除事件（不保留内容）"
+  - "数据驻留：根据 tenant.data_residency 路由到对应区域的 LLM 服务"
+
+one_liner: "多租户 AI SaaS = 四层数据隔离（应用层+RLS+向量Namespace+S3路径）+ Redis 配额计数 + Append-Only 审计日志，GDPR 要求业务数据可删但审计记录不可删。"
+difficulty: advanced

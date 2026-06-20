@@ -1,0 +1,274 @@
+id: "KN-E-000002"
+type: Exercise
+name: "项目二：构建 ReAct Agent"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2"
+difficulty: intermediate
+tags:
+  - exercise
+  - agent
+  - react
+  - tool-use
+  - langgraph
+
+summary: "用 LangGraph 构建一个能使用工具的 ReAct Agent：搜索+计算器+天气，理解 Thought-Action-Observation 循环和 Max Iteration Guard。预计完成时间：5-8 小时。"
+
+learning_objectives:
+  - "理解 ReAct Pattern 的代码实现（不只是概念）"
+  - "学会用 @tool 装饰器定义工具"
+  - "掌握 LangGraph 的 create_react_agent"
+  - "实现 Max Iteration Guard 和超时控制"
+  - "学会用日志追踪 Agent 的 Thought-Action-Observation 链"
+
+prerequisites:
+  - "完成 KN-E-000001（RAG 练习）"
+  - "了解：KN-P-000005（ReAct Pattern）、KN-F-000002（LangGraph）"
+  - "Python async/await 基础"
+
+setup: |
+  pip install langgraph langchain-openai langchain-community
+  pip install requests python-dotenv
+
+task_1_define_tools: |
+  ## 任务 1：定义三个工具
+
+  ```python
+  from langchain_core.tools import tool
+  import requests
+  import json
+
+  @tool
+  def search_web(query: str) -> str:
+      """搜索互联网获取实时信息。
+      当需要查询最新新闻、实时数据、或你不确定的事实时使用。
+      Args:
+          query: 搜索关键词
+      """
+      # 使用 DuckDuckGo 免费搜索 API（不需要 Key）
+      url = f"https://api.duckduckgo.com/?q={query}&format=json&no_html=1"
+      try:
+          resp = requests.get(url, timeout=5)
+          data = resp.json()
+          abstract = data.get("AbstractText", "")
+          related = [r["Text"] for r in data.get("RelatedTopics", [])[:3]]
+          if abstract:
+              return f"搜索结果：{abstract}"
+          elif related:
+              return "相关信息：\n" + "\n".join(related)
+          else:
+              return f"未找到关于'{query}'的直接答案，请尝试更具体的搜索词"
+      except Exception as e:
+          return f"搜索失败：{str(e)}"
+
+  @tool
+  def calculate(expression: str) -> str:
+      """执行数学计算。
+      支持基本运算（+、-、*、/）、幂运算（**）、括号。
+      不支持三角函数等复杂运算。
+      Args:
+          expression: 数学表达式，如 "2 ** 10 + 100 * 3"
+      """
+      # 安全的数学计算（只允许数字和运算符）
+      allowed_chars = set("0123456789+-*/().**% \t")
+      if not all(c in allowed_chars for c in expression):
+          return "错误：只支持基本数学运算"
+      try:
+          result = eval(expression)  # 注意：生产环境不能这样用！
+          return f"{expression} = {result}"
+      except Exception as e:
+          return f"计算错误：{str(e)}"
+
+  @tool
+  def get_current_time() -> str:
+      """获取当前时间（UTC+8 北京时间）。不需要参数。"""
+      from datetime import datetime, timezone, timedelta
+      tz = timezone(timedelta(hours=8))
+      now = datetime.now(tz)
+      return f"当前时间（北京）：{now.strftime('%Y-%m-%d %H:%M:%S')}"
+  ```
+
+  测试工具：
+  - `print(search_web.invoke({"query": "Python 3.13 新功能"}))`
+  - `print(calculate.invoke({"expression": "2 ** 32"}))`
+  - `print(get_current_time.invoke({}))`
+
+task_2_basic_agent: |
+  ## 任务 2：创建基础 ReAct Agent
+
+  ```python
+  from langgraph.prebuilt import create_react_agent
+  from langchain_openai import ChatOpenAI
+
+  llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+  tools = [search_web, calculate, get_current_time]
+
+  # 创建 Agent（LangGraph 封装了完整的 ReAct 循环）
+  agent = create_react_agent(llm, tools)
+
+  # 测试用例（按难度递增）
+  test_cases = [
+      "现在是几点？",                              # 只需一个工具
+      "计算 2 的 20 次方是多少？",                 # 计算工具
+      "搜索一下 LangGraph 是什么",                 # 搜索工具
+      "如果 GPT-4 的上下文窗口是 128000 tokens，"  # 需要多步推理
+      "每个 token 约 4 个字符，那么最多能处理多少字符的文档？"
+  ]
+
+  for question in test_cases:
+      print(f"\n问题：{question}")
+      print("-" * 40)
+      result = agent.invoke({
+          "messages": [{"role": "user", "content": question}]
+      })
+      # 找到最后一条 AI 消息
+      final_msg = [m for m in result["messages"] if hasattr(m, "content")][-1]
+      print(f"回答：{final_msg.content}")
+  ```
+
+task_3_trace_react_loop: |
+  ## 任务 3：追踪 ReAct 循环（理解内部机制）
+
+  ```python
+  # 用 stream 逐步查看 Agent 的每一步
+  print("\n=== ReAct 循环追踪 ===")
+  question = "北京今天的天气怎么样？需要带伞吗？"
+
+  for chunk in agent.stream(
+      {"messages": [{"role": "user", "content": question}]},
+      stream_mode="values"
+  ):
+      last_msg = chunk["messages"][-1]
+      msg_type = type(last_msg).__name__
+
+      if msg_type == "HumanMessage":
+          print(f"\n👤 用户：{last_msg.content}")
+      elif msg_type == "AIMessage":
+          if last_msg.tool_calls:
+              for tc in last_msg.tool_calls:
+                  print(f"\n🤔 Thought → Action：调用 {tc['name']}({tc['args']})")
+          else:
+              print(f"\n💬 Final Answer：{last_msg.content}")
+      elif msg_type == "ToolMessage":
+          print(f"\n👁️ Observation：{last_msg.content[:200]}...")
+  ```
+
+  问题：
+  - Agent 调用了几次工具？
+  - Thought → Action → Observation 循环了几轮？
+  - Final Answer 是基于 Observation 的内容生成的吗？
+
+task_4_max_iteration_guard: |
+  ## 任务 4：添加 Max Iteration Guard
+
+  ```python
+  import asyncio
+
+  async def run_agent_with_guard(question: str, max_iterations: int = 5):
+      """带安全保护的 Agent 执行"""
+      config = {
+          "recursion_limit": max_iterations * 2 + 1  # LangGraph 内部计数方式
+      }
+      try:
+          async with asyncio.timeout(30.0):  # 全局 30 秒超时
+              result = await agent.ainvoke(
+                  {"messages": [{"role": "user", "content": question}]},
+                  config=config
+              )
+              return result["messages"][-1].content
+      except asyncio.TimeoutError:
+          return "⚠️ 超时：Agent 运行超过 30 秒"
+      except Exception as e:
+          if "recursion" in str(e).lower():
+              return f"⚠️ 达到最大迭代次数（{max_iterations} 次）"
+          raise
+
+  # 测试：故意给一个需要很多步骤的问题
+  async def main():
+      result = await run_agent_with_guard(
+          "计算 1 到 100 的所有质数之和，然后搜索这个数字有什么特别的",
+          max_iterations=10
+      )
+      print(result)
+
+  asyncio.run(main())
+  ```
+
+task_5_tool_error_handling: |
+  ## 任务 5：工具失败时的 Agent 行为
+
+  ```python
+  @tool
+  def unreliable_tool(query: str) -> str:
+      """一个会随机失败的工具（模拟真实生产环境）"""
+      import random
+      if random.random() < 0.5:  # 50% 失败率
+          raise Exception("工具暂时不可用，请稍后重试")
+      return f"成功获取：{query} 的结果"
+
+  # 给 Agent 一个会失败的工具
+  agent_with_unreliable = create_react_agent(
+      llm, [unreliable_tool, calculate, get_current_time]
+  )
+
+  # 观察：Agent 如何处理工具失败？
+  # 它会在 Observation 中看到错误信息，然后决定下一步
+  result = agent_with_unreliable.invoke({
+      "messages": [{"role": "user", "content": "用工具查询'Python'，并计算 10 * 10"}]
+  })
+  ```
+
+  问题：
+  - 工具失败后 Agent 怎么做了？重试了吗？还是转向其他工具？
+  - 这说明 Observation 在 ReAct 循环中有什么作用？
+
+deliverables:
+  - "✅ 三个工具的代码（可运行）"
+  - "✅ 四个测试用例的运行截图（含 Thought-Action-Observation 追踪）"
+  - "✅ Max Iteration Guard 的超时测试（截图）"
+  - "✅ 工具失败测试报告（100-200 字：Agent 如何应对失败？）"
+
+common_mistakes:
+  - mistake: "@tool 的 docstring 写得太简单（'执行搜索'）"
+    fix: "工具的 docstring 就是 LLM 理解工具的全部依据，必须清楚说明：用途、参数、何时调用"
+
+  - mistake: "工具函数 raise Exception，而非返回错误字符串"
+    fix: "Agent 通过 Observation 感知失败；Exception 会打断整个循环。工具失败应 return 错误描述字符串"
+
+  - mistake: "不看 stream 输出，不理解内部循环"
+    fix: "用 stream_mode='values' 看每一步，这是理解 ReAct 的最直接方式"
+
+extension_challenges:
+  - "实现一个真正的天气工具（使用免费的 Open-Meteo API）"
+  - "给 Agent 加上对话记忆（多轮对话，记住上一个问题）"
+  - "测试 System Prompt 对 Agent 行为的影响：不同 System Prompt 下 Agent 倾向用哪个工具"
+
+knowledge_nodes_referenced:
+  - "KN-P-000005: ReAct Pattern"
+  - "KN-F-000002: LangGraph"
+  - "KN-B-000002: Max Iteration Guard"
+
+relationships:
+  teaches:
+    - id: "KN-P-000005"
+      note: "本练习是 ReAct Pattern 的代码实现"
+  prerequisite:
+    - id: "KN-E-000001"
+      note: "需要先完成 RAG 练习，理解 LangChain 基础"
+  next_exercise:
+    - id: "KN-E-000003"
+      note: "完成后进阶到 Multi-Agent 系统设计"
+
+interview_points:
+  - "能用代码演示 ReAct 的 Thought-Action-Observation 循环吗？"
+  - "@tool 的 docstring 为什么对 Agent 行为至关重要？"
+  - "工具失败时，Agent 应该 raise Exception 还是 return 错误字符串？为什么？"
+
+exam_points:
+  - "create_react_agent(llm, tools)：LangGraph 封装的 ReAct 标准实现"
+  - "stream_mode='values'：逐步追踪 Agent 每一步的状态变化"
+  - "工具失败 return 字符串，不 raise：让 Agent 通过 Observation 感知失败并调整"
+  - "recursion_limit：LangGraph 的 Max Iteration 控制参数"
+
+one_liner: "LangGraph ReAct Agent：@tool 定义工具，create_react_agent 创建循环，stream 追踪每步，工具失败返回字符串让 Agent 自行决策。"

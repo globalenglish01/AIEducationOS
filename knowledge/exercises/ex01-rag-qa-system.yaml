@@ -1,0 +1,230 @@
+id: "KN-E-000001"
+type: Exercise
+name: "项目一：构建 RAG 问答系统"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1"
+difficulty: beginner
+tags:
+  - exercise
+  - rag
+  - beginner
+  - langchain
+
+summary: "从零开始构建一个基于 PDF 文档的 RAG 问答系统，涵盖文档加载、分块、向量化、检索、生成的完整流程。预计完成时间：3-5 小时。"
+
+learning_objectives:
+  - "理解 RAG 的完整工程流程（不只是概念）"
+  - "掌握 LangChain 的 Document Loader / Text Splitter / Vector Store / Retriever 四件套"
+  - "学会用 RAGAS 评估 RAG 系统质量"
+  - "理解 Chunk 大小对检索质量的影响"
+
+prerequisites:
+  - "Python 基础（函数、类、异步）"
+  - "OpenAI API Key（$1-2 的费用）"
+  - "已了解：KN-C-000001（LLM）、KN-C-000033（RAG）"
+
+setup: |
+  ## 环境准备
+
+  pip install langchain langchain-openai langchain-community
+  pip install chromadb pypdf ragas
+
+  # 设置 API Key
+  export OPENAI_API_KEY="your-key-here"
+
+  # 准备测试文档（选一个你熟悉的 PDF）
+  # 建议：下载一篇技术文档或公司产品手册
+
+task_1_basic_rag: |
+  ## 任务 1：基础 RAG Pipeline（核心）
+
+  实现一个能回答 PDF 文档问题的 QA 系统：
+
+  ```python
+  from langchain_community.document_loaders import PyPDFLoader
+  from langchain.text_splitter import RecursiveCharacterTextSplitter
+  from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+  from langchain_community.vectorstores import Chroma
+  from langchain.chains import RetrievalQA
+
+  # Step 1: 加载文档
+  loader = PyPDFLoader("your_document.pdf")
+  pages = loader.load()
+  print(f"加载了 {len(pages)} 页")
+
+  # Step 2: 分块（Chunking）
+  splitter = RecursiveCharacterTextSplitter(
+      chunk_size=500,      # 尝试不同的值：200, 500, 1000
+      chunk_overlap=50
+  )
+  chunks = splitter.split_documents(pages)
+  print(f"分成了 {len(chunks)} 个 Chunk")
+
+  # Step 3: 向量化 & 存储
+  embeddings = OpenAIEmbeddings()
+  vectordb = Chroma.from_documents(
+      chunks,
+      embeddings,
+      persist_directory="./chroma_db"
+  )
+
+  # Step 4: 构建 QA Chain
+  llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+  retriever = vectordb.as_retriever(search_kwargs={"k": 5})
+  qa_chain = RetrievalQA.from_chain_type(
+      llm=llm,
+      retriever=retriever,
+      return_source_documents=True  # 返回来源文档
+  )
+
+  # Step 5: 测试
+  question = "（填入你的文档相关问题）"
+  result = qa_chain.invoke({"query": question})
+  print("回答：", result["result"])
+  print("来源：", [doc.metadata for doc in result["source_documents"]])
+  ```
+
+  完成后思考：
+  - 回答准确吗？如果不准确，是检索问题还是生成问题？
+  - 修改 chunk_size 为 200 和 1000，质量有什么变化？
+
+task_2_chunk_experiment: |
+  ## 任务 2：Chunk 大小实验（理解 Trade-off）
+
+  用相同的 5 个问题，分别测试 3 种 Chunk 配置：
+  - 配置 A：chunk_size=200, overlap=0
+  - 配置 B：chunk_size=500, overlap=50（推荐起点）
+  - 配置 C：chunk_size=1000, overlap=100
+
+  填写实验表格：
+  | 问题 | 配置 A 质量 (1-5) | 配置 B 质量 (1-5) | 配置 C 质量 (1-5) |
+  |------|-------------------|-------------------|-------------------|
+  | Q1   |                   |                   |                   |
+  | ...  |                   |                   |                   |
+
+  预期发现：
+  - chunk_size 太小：答案片段化，缺少上下文
+  - chunk_size 太大：检索不精准，噪音多
+  - 最优值因文档类型而异
+
+task_3_add_metadata_filter: |
+  ## 任务 3：添加元数据过滤（进阶）
+
+  真实系统通常有多类文档（产品文档 + 政策 + FAQ），
+  实现按文档类型过滤的检索：
+
+  ```python
+  # 加载时添加 metadata
+  loader1 = PyPDFLoader("product_docs.pdf")
+  loader2 = PyPDFLoader("faq.pdf")
+
+  docs1 = loader1.load()
+  docs2 = loader2.load()
+
+  # 添加 metadata 标记文档类型
+  for doc in docs1:
+      doc.metadata["source_type"] = "product"
+  for doc in docs2:
+      doc.metadata["source_type"] = "faq"
+
+  all_docs = docs1 + docs2
+  # ... 分块和向量化
+
+  # 按类型过滤检索
+  faq_retriever = vectordb.as_retriever(
+      search_kwargs={
+          "k": 3,
+          "filter": {"source_type": "faq"}  # 只搜 FAQ
+      }
+  )
+  ```
+
+task_4_evaluation: |
+  ## 任务 4：用 RAGAS 评估质量（了解评估框架）
+
+  ```python
+  from ragas import evaluate
+  from ragas.metrics import faithfulness, answer_relevancy, context_precision
+  from datasets import Dataset
+
+  # 准备评估数据集（至少 5 个 QA 对）
+  eval_data = {
+      "question": ["问题1", "问题2", "问题3"],
+      "answer": [],          # AI 生成的答案（运行你的 RAG 系统得到）
+      "contexts": [],        # 检索到的上下文（source_documents）
+      "ground_truth": [      # 标准答案（你手动写的）
+          "正确答案1",
+          "正确答案2",
+          "正确答案3"
+      ]
+  }
+
+  # 运行 RAG，填充 answer 和 contexts
+  for q in eval_data["question"]:
+      result = qa_chain.invoke({"query": q})
+      eval_data["answer"].append(result["result"])
+      eval_data["contexts"].append(
+          [doc.page_content for doc in result["source_documents"]]
+      )
+
+  dataset = Dataset.from_dict(eval_data)
+  results = evaluate(
+      dataset,
+      metrics=[faithfulness, answer_relevancy, context_precision]
+  )
+  print(results)
+  # 理解每个指标的含义：
+  # faithfulness：答案是否基于检索到的上下文（防幻觉）
+  # answer_relevancy：答案是否回答了问题
+  # context_precision：检索到的上下文是否都有用（不是噪音）
+  ```
+
+deliverables:
+  - "✅ 可运行的 RAG QA 系统（能回答你选的 PDF 文档的问题）"
+  - "✅ Chunk 大小实验报告（3 种配置的质量对比表格）"
+  - "✅ RAGAS 评估结果截图（3 个指标的分数）"
+  - "✅ 一段 200 字的反思：哪个步骤最影响质量？为什么？"
+
+common_mistakes:
+  - mistake: "chunk_size 设太大（2000+），认为'给更多上下文更好'"
+    fix: "大 Chunk 让向量无法精准匹配，检索质量下降。500 是好的起点"
+
+  - mistake: "不加 chunk_overlap，导致关键信息被切断"
+    fix: "overlap 设为 chunk_size 的 10-20%"
+
+  - mistake: "没有用 return_source_documents=True，无法调试检索结果"
+    fix: "调试阶段必须看检索到了什么，才能判断问题出在检索还是生成"
+
+extension_challenges:
+  - "实现 Hybrid Search（LangChain 支持向量 + BM25 混合检索）"
+  - "添加问题改写（HyDE：先生成假设答案，再用假设答案检索）"
+  - "将向量库换成 Pinecone（云托管），观察初始化时间差异"
+
+knowledge_nodes_referenced:
+  - "KN-C-000033: RAG 完整流程"
+  - "KN-T-000002: 向量数据库（Chroma 用法）"
+  - "KN-F-000001: LangChain 四件套"
+
+relationships:
+  teaches:
+    - id: "KN-C-000033"
+      note: "本练习是 RAG 概念节点的实践版本"
+    - id: "KN-T-000002"
+      note: "实际操作 Chroma 向量数据库"
+  next_exercise:
+    - id: "KN-E-000002"
+      note: "完成 RAG 后，进阶到 ReAct Agent"
+
+interview_points:
+  - "完成本练习后，能解释 RAG 的每一步在代码中对应什么？"
+  - "chunk_size 实验的结果说明了什么？有没有'最好的'Chunk 大小？"
+  - "RAGAS 的 faithfulness 低说明什么问题？如何解决？"
+
+exam_points:
+  - "能独立写出 RAG 的 5 步代码：Loader→Splitter→Embeddings→VectorStore→RetrievalQA"
+  - "chunk_size 的 Trade-off：小→精准但片段化；大→上下文完整但噪音多"
+  - "RAGAS 三指标：faithfulness（基于检索生成）/ relevancy（回答了问题）/ precision（检索无噪音）"
+
+one_liner: "从零实现 PDF RAG：Loader→Splitter→Embed→Chroma→RetrievalQA，Chunk 大小实验感受 Trade-off，RAGAS 量化质量。"
