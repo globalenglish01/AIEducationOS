@@ -96,7 +96,16 @@ class ReviewerAgent:
                 response = self._run_in_subprocess(user_message, attempt)
                 result = _parse_json_response(response)
 
+                # DeepSeek有时在顶层用"score"字段而不是"total_score"
+                # 如果total_score=0但顶层score>0，以顶层score为准
+                top_score = result.get("score", 0)
                 result.setdefault("total_score", 0)
+                if result["total_score"] == 0 and top_score > 0:
+                    result["total_score"] = top_score
+                # 如果status="PASS"但total_score还是0，强制设为95
+                if result.get("status") == "PASS" and result["total_score"] == 0:
+                    result["total_score"] = 95
+
                 result.setdefault("passed", result["total_score"] >= PASS_THRESHOLD)
                 result.setdefault("rewrite_required", result["total_score"] < REWRITE_THRESHOLD)
                 result.setdefault("critical_issues", [])
