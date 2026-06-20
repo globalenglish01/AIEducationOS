@@ -818,11 +818,11 @@ class App(ctk.CTk):
     def _refresh_deploy_status(self):
         from deployer import CHAPTERS_DIR, LESSONS_DIR, CHAPTER_NUM_TO_NODE, CHAPTER_SLUGS
         generated = sum(
-            1 for nid, ch in CHAPTER_NUM_TO_NODE.items()
+            1 for ch, nid in CHAPTER_NUM_TO_NODE.items()
             if (CHAPTERS_DIR / f"ch{int(ch):02d}_{nid}.md").exists()
         )
         deployed = sum(
-            1 for nid in CHAPTER_NUM_TO_NODE
+            1 for nid in CHAPTER_NUM_TO_NODE.values()
             if (LESSONS_DIR / f"{CHAPTER_SLUGS.get(nid, 'x')}.json").exists()
         )
         self._deploy_summary_label.configure(
