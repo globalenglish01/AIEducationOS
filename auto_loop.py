@@ -153,7 +153,7 @@ def run_chapter(chapter_num: int, force: bool = False) -> bool:
         "--end", str(chapter_num),
         "--no-deploy",
         "--account", "3",          # lucyzhaoaa（acc1 studyathena888 限额已满）
-        "--reviewer-account", "1", # acc_59208974（acc4 LucyQQ 被禁言至2026-06-21 12:31）
+        "--reviewer-account", "2", # acc_2985a67f zhaoyx（acc4 LucyQQ 被禁言至2026-06-21 12:31；acc3 lucyzhaoaa 同时跑Researcher）
     ]
     if force:
         cmd.append("--force")
