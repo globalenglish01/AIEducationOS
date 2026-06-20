@@ -291,6 +291,10 @@ class ChatGPTBrowserLLM(BaseLLM):
                             raise _cgb.SessionExpired("单段回复 FREE_QUOTA_EXCEEDED，切换账号")
                         if "CHATGPT_ERROR" in str(answer) or str(answer).strip() == "CHATGPT_ERROR":
                             raise _cgb.SessionExpired("单段回复 CHATGPT_ERROR")
+                        if str(answer).strip() == "RATE_LIMITED":
+                            print(f"  ⚠️  单段回复 RATE_LIMITED，等待30秒后重试...")
+                            import time as _time; _time.sleep(30)
+                            raise Exception("单段回复 RATE_LIMITED，触发重试")
                         # 截断检测：缺 Part 则追问继续
                         all_parts = [answer]
                         for cont_round in range(3):
@@ -320,6 +324,9 @@ class ChatGPTBrowserLLM(BaseLLM):
                             cont_answer = bot.wait_for_answer(self._page, min_msg_count=msg_before2 + 1) or ""
                             if str(cont_answer).strip() == "FREE_QUOTA_EXCEEDED":
                                 raise _cgb.SessionExpired("追问回复 FREE_QUOTA_EXCEEDED，切换账号")
+                            if str(cont_answer).strip() == "RATE_LIMITED":
+                                print(f"  ⚠️  追问回复 RATE_LIMITED，停止追问")
+                                break
                             if cont_answer and "CHATGPT_ERROR" not in cont_answer:
                                 all_parts.append(cont_answer)
                             else:
