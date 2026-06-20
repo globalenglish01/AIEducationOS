@@ -1,0 +1,182 @@
+id: "KN-C-000052"
+type: Framework
+name: "FCARS（AI 治理框架）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L3-L4"
+tags:
+  - advanced
+  - governance
+  - safety
+  - framework
+
+aliases:
+  - "Fairness Compliance Accountability Reliability Safety"
+  - "AI 治理"
+  - "Responsible AI"
+
+summary: "五维度 AI 系统治理框架：公平性、合规性、问责性、可靠性、安全性——AI 平台架构师必须掌握的负责任 AI 设计体系。"
+
+definition: |
+  FCARS 是一个 AI 系统治理框架，从五个维度评估和设计负责任的 AI 系统：
+  - Fairness（公平性）：AI 系统对不同群体是否公平，有无歧视偏见
+  - Compliance（合规性）：是否符合法律法规（GDPR、CCPA、AI Act 等）
+  - Accountability（问责性）：AI 决策过程是否可追溯，谁负责
+  - Reliability（可靠性）：系统是否稳定可靠，在边界情况下行为是否可预测
+  - Safety（安全性）：是否能防止有害输出，抵御攻击
+
+  在企业级 AI 平台中，FCARS 是 L3/L4 架构师的核心设计框架之一。
+
+why: |
+  AI 系统与传统软件的关键区别：
+  - 行为难以完全预测（LLM 有随机性）
+  - 对用户的影响更直接（医疗、金融、法律场景）
+  - 监管日趋严格（EU AI Act 2024、各国 AI 法规）
+  - 偏见风险更隐蔽（训练数据偏见难以发现）
+
+  FCARS 提供系统性框架，使 AI 平台从"能用"升级到"可信任、可监管"。
+
+five_dimensions:
+  fairness:
+    name: "Fairness（公平性）"
+    definition: "AI 系统对不同人口群体（性别、种族、年龄、地区）的输出和决策不存在歧视性差异"
+    risks:
+      - "招聘 AI 对女性候选人评分系统性偏低（训练数据中历史偏见）"
+      - "信贷 AI 对少数族裔拒贷率显著高于多数族裔"
+      - "内容推荐 AI 给不同地区用户推送质量差异显著的内容"
+    measurements:
+      - "Demographic Parity：不同群体获得正向结果的比例是否相同"
+      - "Equal Opportunity：对不同群体的真正正确率是否相同"
+      - "Disparate Impact：不同群体的结果比率 < 0.8 视为显著不公平（美国 EEOC 标准）"
+    implementation: |
+      # 偏见检测：按群体分析模型性能
+      def check_fairness(model, test_data):
+          results = {}
+          for group in ["gender", "age_group", "region"]:
+              group_data = test_data.groupby(group)
+              for name, subset in group_data:
+                  accuracy = model.evaluate(subset)
+                  results[f"{group}_{name}"] = accuracy
+
+          # 检查最大差距是否超过阈值（如 5%）
+          max_gap = max(results.values()) - min(results.values())
+          return max_gap, results
+
+  compliance:
+    name: "Compliance（合规性）"
+    definition: "AI 系统的数据处理、决策逻辑、用户权利保障符合适用的法律法规"
+    key_regulations:
+      - name: "GDPR（欧盟通用数据保护条例）"
+        requirements:
+          - "数据最小化：只收集必要数据"
+          - "知情同意：用户明确同意数据被用于 AI 训练"
+          - "被遗忘权：用户可以要求删除其数据"
+          - "自动化决策权：用户有权要求人工审核 AI 的自动化决策"
+      - name: "EU AI Act（欧盟 AI 法案，2024）"
+        requirements:
+          - "高风险 AI 系统（医疗、执法、信贷）需强制注册和评估"
+          - "透明度：用户有权知道自己在与 AI 交互"
+          - "禁止行为：社会评分系统、实时人脸识别（部分场景）"
+      - name: "中国 AI 法规"
+        requirements:
+          - "生成式 AI 服务需在国内备案"
+          - "AI 生成内容需有水印或标识"
+          - "不得生成违法、不实、有害内容"
+    implementation: |
+      # 合规设计检查清单
+      compliance_checklist = {
+          "data_minimization": "只收集回答问题必要的数据",
+          "consent_tracking": "记录用户对数据使用的同意记录",
+          "right_to_deletion": "支持删除用户数据（包括向量库中的 Embedding）",
+          "human_override": "高风险决策提供人工审核通道",
+          "ai_disclosure": "明确标识 AI 生成的内容",
+          "audit_trail": "保留决策过程的完整审计记录"
+      }
+
+  accountability:
+    name: "Accountability（问责性）"
+    definition: "AI 系统的每个决策都有清晰的责任链，并有足够的记录支持事后追溯"
+    components:
+      - "决策可追溯：每个 AI 输出都能追溯到使用的模型版本、Prompt 版本、输入数据"
+      - "责任归属：明确 AI 系统的各层级责任（开发团队、运营团队、业务团队）"
+      - "审计日志：Human-in-the-Loop 的所有审批记录（谁在什么时间批准了什么）"
+      - "事故报告：AI 系统造成的问题有标准的记录和上报流程"
+    implementation: |
+      # 每次 AI 决策都记录完整的决策上下文
+      decision_record = {
+          "decision_id": "dec-uuid-001",
+          "timestamp": "2026-06-19T10:23:45Z",
+          "model_version": "gpt-4o-2024-11-20",
+          "prompt_version": "v2.3.1",
+          "input_hash": "sha256:abc...",  # 输入的哈希（不存原文，保护隐私）
+          "output_summary": "推荐信贷额度：¥50,000",
+          "confidence_score": 0.87,
+          "human_reviewer": null,         # 如果有人工审核
+          "review_timestamp": null
+      }
+
+  reliability:
+    name: "Reliability（可靠性）"
+    definition: "AI 系统在正常和边界条件下行为一致、可预测，具备故障恢复能力"
+    dimensions:
+      - "行为一致性：相同输入产生稳定输出（temperature=0 的场景）"
+      - "边界鲁棒性：在奇怪的输入、极端情况下不崩溃也不产生危险输出"
+      - "故障恢复：API 超时、模型不可用时有降级方案"
+      - "性能稳定性：高并发下延迟不显著增加"
+    chaos_engineering: |
+      通过混沌工程测试可靠性（见 chaos-engineering.yaml）：
+      - API 超时注入：LLM API 返回超时，系统是否优雅降级？
+      - 限流模拟：触发 429 Rate Limit，是否正确重试？
+      - 无效响应：LLM 返回非 JSON 格式，是否正确处理？
+
+  safety:
+    name: "Safety（安全性）"
+    definition: "AI 系统能防止产生有害输出，抵御恶意攻击，保护用户和社会安全"
+    dimensions:
+      - "内容安全：不生成暴力、歧视、有害内容"
+      - "攻击防御：抵御 Prompt Injection、Tool Injection"
+      - "数据安全：防止训练数据或用户数据泄露"
+      - "误用防御：识别并拒绝被用于有害目的的请求"
+    implementation: "参见 Guardrails、Prompt Injection 节点"
+
+fcars_in_architecture: |
+  L3/L4 架构师在设计 AI 平台时，FCARS 体现在：
+
+  平台级设计：
+  - 统一的 Guardrails 层（Safety）
+  - 集中的审计日志系统（Accountability）
+  - 模型治理平台（Compliance：模型注册、版本追踪、监管报告）
+  - SLA 监控和自动降级（Reliability）
+
+  团队级流程：
+  - Fairness 评估流程（每个 AI 系统上线前的公平性测试）
+  - AI 风险评估（新 AI 场景的 FCARS 风险矩阵）
+  - 事故响应流程（AI 产生有害输出时的处置流程）
+
+relationships:
+  implemented_by:
+    - id: "KN-C-000042"
+      note: "Guardrails 是 FCARS Safety 维度的技术实现"
+  supported_by:
+    - id: "KN-C-000044"
+      note: "Tracing 是 FCARS Accountability 维度的技术基础"
+    - id: "KN-C-000039"
+      note: "Regression Testing 支撑 FCARS Reliability 维度"
+
+interview_points:
+  - "FCARS 是什么？为什么企业级 AI 平台需要 FCARS 框架？"
+  - "Fairness 维度如何量化评估？Disparate Impact 是什么？"
+  - "GDPR 对 AI 系统有哪些具体要求？被遗忘权如何在 RAG 系统中落地？"
+  - "Accountability 维度要求记录哪些信息？"
+  - "如何在架构层面系统性地落地 FCARS？（L4 考察）"
+
+exam_points:
+  - "FCARS = Fairness（公平）/ Compliance（合规）/ Accountability（问责）/ Reliability（可靠）/ Safety（安全）"
+  - "Fairness 关键指标：Disparate Impact（< 0.8 为显著不公平）"
+  - "Compliance 关键法规：GDPR（被遗忘权、知情同意）/ EU AI Act（高风险系统注册）"
+  - "Accountability = 决策可追溯 + 责任归属 + 审计日志"
+  - "L3+ 架构师必须能在平台层系统落地 FCARS，不只是了解概念"
+
+one_liner: "FCARS = AI 系统的五维度治理框架，从公平合规到安全可靠，是 AI 平台架构师的必备设计语言。"
+difficulty: expert

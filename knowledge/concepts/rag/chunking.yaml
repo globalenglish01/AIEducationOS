@@ -1,0 +1,134 @@
+id: "KN-C-000032"
+type: Practice
+name: "Chunking（文档分块）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - rag
+  - chunking
+  - data-processing
+
+aliases:
+  - "文档分块"
+  - "文本切分"
+  - "Document Splitting"
+
+summary: "将长文档切分为适合向量化和检索的文本块——分块策略直接决定 RAG 系统的检索质量。"
+
+definition: |
+  Chunking 是将长篇文档（PDF、网页、代码文件等）切分为多个较短文本块的预处理步骤。
+  每个 Chunk 会被独立向量化并存入向量数据库。
+  检索时，返回的是最相关的 Chunk，而不是整个文档。
+  Chunking 策略（大小、重叠、方式）直接影响 RAG 的检索精度和召回率。
+
+why: |
+  为什么不把整个文档直接向量化？
+  1. 长文档 Embedding 会"稀释"：向量包含了太多主题，相似度计算不准确
+  2. Context Window 限制：即使找到了相关文档，整篇喂给 LLM 可能超出上下文限制
+  3. 精度问题：用户问关于"第3章第2节"的问题，检索结果应该是那个章节，而不是整本书
+  适当的分块让向量"专注"于具体的知识点，检索更精准。
+
+mental_model: |
+  Chunking = 把一本书拆成知识卡片
+  - 整本书（1 个向量）：搜什么都搜到这本书，无法定位具体内容
+  - 每章（中等块）：能定位到章节级别
+  - 每段/每个概念（小块）：能精确定位到具体知识点
+
+  卡片太大：包含多个主题，向量"不专注"，检索精度低
+  卡片太小：缺乏上下文，LLM 无法理解，生成质量差
+  适当大小：检索精准，上下文完整
+
+chunking_strategies:
+  - name: "Fixed Size Chunking（固定大小分块）"
+    description: "按固定字符数或 Token 数切分，通常设置重叠（Overlap）避免跨块丢失上下文"
+    code_example: |
+      from langchain.text_splitter import RecursiveCharacterTextSplitter
+      splitter = RecursiveCharacterTextSplitter(
+          chunk_size=500,       # 每块最大 500 Token
+          chunk_overlap=50,     # 相邻块重叠 50 Token
+          separators=["\n\n", "\n", "。", " "]  # 优先在段落处切分
+      )
+      chunks = splitter.split_text(long_text)
+    pros: "实现简单，效果稳定"
+    cons: "可能在句子中间切断，语义不完整"
+    use_when: "通用场景，快速上线"
+
+  - name: "Semantic Chunking（语义分块）"
+    description: "基于语义相似度切分：相邻句子语义相似则合并，语义差异大则切分"
+    pros: "每块在语义上更完整，向量质量更高"
+    cons: "实现复杂，每次切分需要调用 Embedding 模型，成本高"
+    use_when: "对检索质量要求极高，有充足的预处理时间"
+
+  - name: "Document Structure Chunking（结构化分块）"
+    description: "按文档固有结构切分：Markdown 按标题，代码按函数，PDF 按章节"
+    pros: "每块对应完整的逻辑单元（一个概念、一个函数）"
+    cons: "需要文档结构规范，对非结构化文档效果差"
+    use_when: "文档有清晰结构（技术文档、Markdown、代码）"
+
+  - name: "Parent-Child Chunking（父子分块）"
+    description: |
+      两级分块策略：
+      - 小块（Child）用于检索（精确定位）
+      - 大块（Parent）用于喂给 LLM（提供完整上下文）
+      检索时用小块，生成时用大块
+    pros: "检索精准 + 生成质量高，两全其美"
+    cons: "实现复杂，需要维护父子关系"
+    use_when: "对检索精度和生成质量都有要求的生产场景"
+
+key_parameters:
+  chunk_size:
+    description: "每块的大小（Token 数或字符数）"
+    typical_range: "256-1024 Token"
+    guidance: "太小：上下文不足；太大：语义不专注。通用起点：500 Token"
+  chunk_overlap:
+    description: "相邻块之间的重叠部分，防止重要信息在切分点丢失"
+    typical_range: "chunk_size 的 10-20%"
+    guidance: "overlap 太大浪费存储；太小会丢失切分点的上下文"
+  separator:
+    description: "优先在哪些字符处切分"
+    guidance: "优先段落（\\n\\n）> 句子（\\n、。）> 词 > 字符"
+
+best_practices:
+  - "从 chunk_size=500, overlap=50 开始，通过 Evaluation 调优"
+  - "技术文档优先用 Markdown 标题分块（结构化分块），每个标题对应一个独立的知识块"
+  - "每个 Chunk 携带元数据（source、chunk_index、total_chunks），检索后能溯源"
+  - "预处理时清洗文档（去除页眉页脚、水印、多余空行），提升 Chunk 质量"
+  - "对 Chunk 质量做抽样评估：检索一批问题，人工判断返回的 Chunk 是否合理"
+
+anti_patterns:
+  - pattern: "chunk_size 设置过大（超过 2000 Token）"
+    consequence: "向量包含多个主题，检索相似度下降；检索结果可能超出 LLM Context Window"
+  - pattern: "不设置 Overlap"
+    consequence: "跨越分块边界的重要信息（如总结句在段落末尾）被切断，两个 Chunk 都不完整"
+  - pattern: "Chunk 不携带元数据"
+    consequence: "LLM 生成的答案无法溯源，用户无法验证信息来源"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000030"
+      note: "Chunking 后的每个块会被送入 Embedding 模型向量化"
+  used_by:
+    - id: "KN-C-000033"
+      note: "RAG 的文档预处理阶段包含 Chunking"
+  related_concepts:
+    - id: "KN-C-000031"
+      note: "Chunk 向量化后存入向量数据库"
+
+interview_points:
+  - "为什么 RAG 需要 Chunking？不切分有什么问题？"
+  - "常见的 Chunking 策略有哪些？各自适用什么场景？"
+  - "chunk_size 如何选择？太大太小分别有什么问题？"
+  - "什么是 Parent-Child Chunking？它解决了什么问题？"
+  - "如何评估 Chunking 策略的效果？（L2+ 考察）"
+
+exam_points:
+  - "Chunking = 将长文档切成小块，每块独立向量化+存储"
+  - "核心参数：chunk_size（块大小）+ chunk_overlap（重叠，防止边界信息丢失）"
+  - "通用起点：chunk_size=500 Token，overlap=10-20%"
+  - "Parent-Child：小块检索（精准）+ 大块生成（完整上下文）"
+  - "每块必须携带元数据（来源、位置），支持答案溯源"
+
+one_liner: "Chunking = 把书拆成知识卡片，卡片大小决定检索精度——太大不专注，太小没上下文。"
+difficulty: intermediate

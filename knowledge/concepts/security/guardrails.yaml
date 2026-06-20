@@ -1,0 +1,167 @@
+id: "KN-C-000042"
+type: Pattern
+name: "Guardrails（安全护栏）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - security
+  - guardrails
+  - safety
+  - pattern
+
+aliases:
+  - "安全护栏"
+  - "内容过滤"
+  - "Safety Layer"
+
+summary: "在 LLM 输入/输出层设置的自动化安全检查机制，拦截有害内容、越权操作、敏感信息泄露——AI 系统的安全防线。"
+
+definition: |
+  Guardrails（安全护栏）是在 LLM 应用的输入和输出层设置的一组自动化检查规则，
+  用于：
+  1. 输入护栏：过滤恶意输入（Prompt Injection、有害内容、PII）
+  2. 输出护栏：检查 LLM 输出（幻觉、有害内容、敏感信息泄露、越权操作）
+  Guardrails 是在 Prompt 层防御之外的额外安全层，
+  遵循"纵深防御"原则：即使 Prompt 层被绕过，Guardrails 仍能拦截。
+
+guardrail_layers:
+  input_guardrails:
+    description: "在用户输入送入 LLM 之前检查"
+    checks:
+      - name: "Prompt Injection 检测"
+        description: "检测用户输入中的注入模式"
+        implementation: "规则匹配 + 专用分类模型（如 LlamaGuard）"
+      - name: "PII 检测与脱敏"
+        description: "检测并脱敏个人身份信息（身份证号、手机号、银行卡号）"
+        implementation: "正则 + NER 模型（如 presidio）"
+      - name: "有害内容过滤"
+        description: "过滤暴力、色情、仇恨言论等有害内容"
+        implementation: "内容安全分类模型（Azure Content Safety、OpenAI Moderation API）"
+      - name: "Topic 限制"
+        description: "检测用户问题是否超出应用范围（如客服 Bot 收到代码问题）"
+        implementation: "LLM-as-Judge 或向量相似度分类"
+
+  output_guardrails:
+    description: "在 LLM 输出返回给用户之前检查"
+    checks:
+      - name: "系统提示泄露检测"
+        description: "检查输出是否包含 System Prompt 的内容"
+        implementation: "字符串匹配 + 语义相似度检查"
+      - name: "幻觉检测（Faithfulness）"
+        description: "检查输出是否包含无法在上下文中找到依据的陈述"
+        implementation: "LLM-as-Judge（Faithfulness 评分 < 阈值则拦截）"
+      - name: "PII 泄露检测"
+        description: "防止 LLM 在输出中包含 PII（训练数据记忆或 RAG 引入）"
+        implementation: "正则 + NER 检测，发现 PII 则脱敏或拒绝输出"
+      - name: "格式验证"
+        description: "要求 JSON 输出时，验证输出是否符合 Schema"
+        implementation: "JSON Schema 验证，不合格则触发重试"
+
+implementation_patterns:
+  - name: "Pre/Post Hook 模式"
+    description: "在 LLM 调用前后插入 Guardrail 检查函数"
+    code_example: |
+      async def llm_with_guardrails(user_input: str) -> str:
+          # === 输入护栏 ===
+          input_check = await input_guardrail.check(user_input)
+          if input_check.blocked:
+              return f"抱歉，您的请求无法处理：{input_check.reason}"
+
+          # === LLM 调用 ===
+          raw_output = await llm.chat(user_input)
+
+          # === 输出护栏 ===
+          output_check = await output_guardrail.check(raw_output, context=user_input)
+          if output_check.blocked:
+              return "抱歉，生成的内容不符合安全标准，请重新提问。"
+          if output_check.modified:
+              return output_check.safe_output  # 脱敏后的输出
+
+          return raw_output
+
+  - name: "NeMo Guardrails（框架）"
+    description: "NVIDIA 开源的 Guardrails 框架，使用 Colang 语言定义对话轨道"
+    code_example: |
+      # rails/config.co（Colang 语法）
+      define user ask about competitor
+        "你们和竞争对手相比怎么样"
+        "为什么不用 XXX 产品"
+
+      define bot refuse competitor comparison
+        "感谢您的关注！我们专注于为您提供最好的服务，
+         如需了解我们的产品特点，我很乐意介绍。"
+
+      define flow competitor guard
+        user ask about competitor
+        bot refuse competitor comparison
+
+  - name: "LlamaGuard"
+    description: "Meta 开源的安全分类模型，专门用于检测 LLM 输入/输出中的有害内容"
+    use_case: "危害类别：暴力、自伤、非法活动、隐私侵犯等"
+
+guardrail_vs_prompt: |
+  Guardrails 和 System Prompt 安全约束的区别：
+
+  System Prompt 安全约束：
+  - 在 LLM 层：依赖 LLM 遵守指令
+  - 可以被 Prompt Injection 绕过
+  - 没有额外成本（复用 LLM 调用）
+
+  Guardrails：
+  - 在应用层：独立于 LLM 执行检查
+  - Prompt Injection 绕过 LLM 后，Guardrails 仍可拦截
+  - 有额外成本（延迟 + 计算）
+
+  结论：两者互补，不能相互替代
+
+performance_considerations: |
+  Guardrails 会增加延迟：
+  - 规则匹配（正则）：< 1ms，几乎无感
+  - 小型分类模型：10-50ms
+  - LLM-as-Judge（独立 LLM 调用）：500ms-2s
+
+  优化策略：
+  - 并行执行多个 Guardrail 检查（输入护栏可与 LLM 调用并行）
+  - 优先用轻量规则，只在必要时用 LLM-as-Judge
+  - 对低风险场景（内部工具）降低 Guardrail 严格度
+
+best_practices:
+  - "输入护栏和输出护栏都要有——单层防御不够"
+  - "Guardrail 拦截要有清晰的用户提示，让用户知道为什么被拦截（而不是神秘地不回应）"
+  - "Guardrail 触发事件要记录到审计日志，用于安全分析和规则优化"
+  - "定期测试 Guardrails 的有效性：用红队测试（Red Team）尝试绕过"
+
+anti_patterns:
+  - pattern: "只有 System Prompt 安全约束，没有 Guardrails"
+    consequence: "Prompt Injection 成功绕过 System Prompt 后，没有后备防线"
+  - pattern: "所有检查都用 LLM-as-Judge"
+    consequence: "延迟增加 2-4 秒，用户体验差；成本大幅增加"
+  - pattern: "Guardrails 过于严格，误拦截正常请求"
+    consequence: "用户体验差，大量合理请求被拒绝（False Positive 过高）"
+
+relationships:
+  defends_against:
+    - id: "KN-C-000040"
+      note: "Guardrails 是 Prompt Injection 的应用层防御"
+    - id: "KN-C-000041"
+      note: "Guardrails 在输出层检测 Agent 权限提升导致的异常输出"
+    - id: "KN-C-000043"
+      note: "Guardrails 的输出护栏可检测 Tool Injection 引发的异常行为"
+
+interview_points:
+  - "Guardrails 是什么？为什么 System Prompt 的安全约束不够？"
+  - "输入护栏和输出护栏分别检查什么？"
+  - "Guardrails 会对系统性能有什么影响？如何优化？"
+  - "如何测试 Guardrails 的有效性？（L2+ 考察）"
+  - "NeMo Guardrails 是什么？解决了什么问题？（L3+ 加分）"
+
+exam_points:
+  - "Guardrails = 输入层+输出层的自动化安全检查，独立于 LLM 执行"
+  - "输入护栏：Prompt Injection / PII / 有害内容 / Topic 限制"
+  - "输出护栏：系统提示泄露 / 幻觉 / PII泄露 / 格式验证"
+  - "与 System Prompt 互补：SP 在 LLM 层，Guardrails 在应用层"
+
+one_liner: "Guardrails = AI 的安全气囊，在输入输出层各设一道独立于 LLM 的检查，System Prompt 被绕过后的最后防线。"
+difficulty: advanced

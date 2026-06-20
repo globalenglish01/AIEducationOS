@@ -1,0 +1,111 @@
+id: "KN-C-000002"
+type: Concept
+name: "Token"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - foundation
+  - llm
+  - cost
+
+aliases:
+  - "词元"
+  - "Token化"
+  - "Tokenization"
+
+summary: "LLM 处理文本的最小单位，不等于一个词，也是计费和 Context Window 的计量单位。"
+
+definition: |
+  Token 是 LLM 将文本切分后的最小处理单元。
+  一个 Token 通常对应约 3-4 个英文字符，或约 1.5 个中文字符。
+  LLM 既不按字符处理文本，也不按完整单词处理，
+  而是用 BPE（Byte Pair Encoding）等算法将文本切分为子词片段（subword）。
+
+why: |
+  为什么不按字符处理？字符粒度太细，序列太长，计算量爆炸。
+  为什么不按完整单词处理？词表会无限大（无法覆盖所有词、新词、专有名词）。
+  Token 是两者的折中：词表大小可控（约 5-10 万），
+  序列长度合理，又能处理未见过的词（拆成子词组合）。
+
+mental_model: |
+  Token ≈ 乐高积木
+  文字是用乐高拼出来的模型，但乐高的形状不是一个字母，也不是一个完整单词，
+  而是常见的"词片段"：
+  - "un" + "believ" + "able" = "unbelievable"（3个Token）
+  - "中" + "文" = "中文"（可能是1-2个Token）
+  - " hello" 和 "hello" 是不同的Token（前面有空格）
+
+how_it_works: |
+  1. 训练阶段：统计语料中高频字符组合，合并为固定词表（约5-10万个Token）
+  2. 编码阶段：将输入文本按词表切分为Token序列
+     例："RAG is great" → ["R","AG"," is"," great"] 或 ["RAG"," is"," great"]
+  3. 处理阶段：LLM 以Token为单位做注意力计算和预测
+  4. 计费阶段：API 调用按 输入Token数 + 输出Token数 计费
+
+core_principles:
+  - "Token ≠ 字符 ≠ 单词：中文1字约1.5Token，英文1词约1.3Token"
+  - "Context Window 以Token计量，不是字符或单词"
+  - "API 成本 = (输入Token + 输出Token) × 单价"
+  - "同样内容，不同语言Token数差异巨大（中文比英文贵约2倍）"
+
+examples:
+  - scenario: "成本估算"
+    description: "1000字中文文档约1500Token；GPT-4输入$0.03/1K Token，处理该文档约$0.045"
+  - scenario: "Context Window 规划"
+    description: "128K Context Window 能放约8万字中文，约10万字英文"
+
+counter_examples:
+  - "不要用字符数估算Token数（误差很大）"
+  - "不要假设中英文Token数相同（中文通常多50-100%）"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "Token 是 LLM 处理文本的基本单位，先理解 LLM"
+  used_by:
+    - id: "KN-C-000003"
+      note: "Context Window 以 Token 计量"
+  related_concepts:
+    - id: "KN-C-000005"
+      note: "Temperature 影响 Token 的采样方式"
+
+common_misconceptions:
+  - misconception: "1个Token = 1个字"
+    correction: "中文1字约1-1.5个Token，英文1个词约1-1.3个Token，标点、空格也占Token。"
+  - misconception: "Token越少越好"
+    correction: "Token数少意味着信息少。关键是信息密度：用最少的Token传递最关键的信息，而不是一味压缩。"
+  - misconception: "输入Token和输出Token一样贵"
+    correction: "大多数模型输出Token比输入Token贵2-4倍，因为生成比理解计算量更大。"
+
+best_practices:
+  - "估算成本时：中文字数 × 1.5 ≈ Token数；英文词数 × 1.3 ≈ Token数"
+  - "在 Prompt 中避免冗余词语，每个Token都有成本"
+  - "长文档处理时，先做摘要压缩再注入，避免Context Window溢出"
+  - "用 tiktoken 库精确计算Token数（OpenAI 系列）"
+
+anti_patterns:
+  - pattern: "把整个文档塞入Prompt不做压缩"
+    consequence: "Token浪费，Context溢出，成本飙升，且关键信息被噪音淹没"
+  - pattern: "不监控Token用量"
+    consequence: "成本失控，无法发现异常调用"
+
+interview_points:
+  - "Token是什么？为什么LLM用Token而不是字符或单词？"
+  - "如何估算一段文本的Token数？中英文有什么差异？"
+  - "Token数和API成本的关系是什么？如何优化？"
+  - "Context Window是以什么为单位的？128K Context Window能放多少中文？"
+
+exam_points:
+  - "英文1词≈1.3Token，中文1字≈1-1.5Token"
+  - "输出Token通常比输入Token贵（生成比理解计算量大）"
+  - "Context Window以Token计量，超出则截断"
+  - "BPE（Byte Pair Encoding）是常见的Tokenization算法"
+
+one_liner: "Token是LLM的计量单位，≠字符≠单词，是成本和上下文窗口的计算基础。"
+difficulty: beginner
+
+references:
+  - "tiktoken（OpenAI Token计算库）: https://github.com/openai/tiktoken"
+  - "BPE算法原文: Sennrich et al., 2016"

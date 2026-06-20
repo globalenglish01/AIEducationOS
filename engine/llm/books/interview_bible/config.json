@@ -1,0 +1,640 @@
+{
+  "book_title": "《被AI淘汰，还是被AI带飞？—— AI Native Engineer/架构师面试通关实录》",
+  "protagonist": "林雪，45岁，女，保险核心系统COBOL开发15年+，转型AI Native Engineer求职",
+  "build": {
+    "mode": "sections",
+    "source_dir": "scripts/ai_native_system/progress/interview_bible",
+    "out_json": "frontend/public/data/interview-bible-claude.json",
+    "frontend_title": "《被AI淘汰，还是被AI带飞？》—— AI Native Engineer 面试通关实录（Claude 亲笔版）",
+    "provider": "claude"
+  },
+  "source_material": "docs/InterviewBible/00_source_material.md",
+  "mentors": {
+    "architect": {
+      "name": "架构导师",
+      "tagline": "没有免费的午餐",
+      "focus": "系统设计/Trade-off/架构决策"
+    },
+    "ai": {
+      "name": "AI导师",
+      "tagline": "不要让模型猜",
+      "focus": "Prompt/Agent/模型选择"
+    },
+    "test": {
+      "name": "测试导师",
+      "tagline": "能跑不代表能上线",
+      "focus": "可靠性/可观测性/边界情况"
+    },
+    "future": {
+      "name": "未来导师",
+      "tagline": "你以为在写代码，其实是在设计未来",
+      "focus": "职业成长/转型心理/Offer决策"
+    }
+  },
+  "stages": [
+    {
+      "id": 1,
+      "name": "施工图",
+      "provider": "deepseek"
+    },
+    {
+      "id": 2,
+      "name": "草稿前半",
+      "provider": "deepseek"
+    },
+    {
+      "id": 3,
+      "name": "草稿后半",
+      "provider": "deepseek"
+    },
+    {
+      "id": 4,
+      "name": "DS技术审稿",
+      "provider": "deepseek"
+    },
+    {
+      "id": 5,
+      "name": "ChatGPT修订",
+      "provider": "chatgpt"
+    },
+    {
+      "id": 6,
+      "name": "ChatGPT终审",
+      "provider": "chatgpt"
+    }
+  ],
+  "chapters": {
+    "0": {
+      "title": "被「优化」的那个下午",
+      "part": "序章",
+      "marker": "CH0",
+      "interviewer": null,
+      "key_topics": [
+        "COBOL团队缩编背景",
+        "VBA报表被AI替代的那一刻",
+        "45岁转型的起点",
+        "林雪的决心"
+      ],
+      "story_hook": "2026年3月某个周四下午三点，林雪被叫进会议室。HR说：'公司战略调整，COBOL团队缩编为2人。'她想起带了7年的徒弟王哲上周已经被通知离职——用AI工具一句话就生成了她写了3年的VBA报表",
+      "mentor": "future",
+      "source_refs": [],
+      "min_words": 3000,
+      "failure_archives": []
+    },
+    "1": {
+      "title": "面试官到底在看什么 —— AI Native岗位的评估框架",
+      "part": "Part1 重新定位篇",
+      "marker": "CH1",
+      "interviewer": {
+        "type": "猎头/HR",
+        "name": "周敏",
+        "company": "某头部科技猎头公司",
+        "tagline": "我见过太多技术好但讲不清楚的候选人"
+      },
+      "key_topics": [
+        "AI Native岗位JD解码",
+        "面试官的三层评估维度（能不能做/做过没/敢不敢诚实）",
+        "COBOL经历的市场重新定价",
+        "林雪简历的Before/After对比"
+      ],
+      "story_hook": "林雪投了20份AI岗位简历，只有3个回音，还是HR打来说'你这个背景不太匹配'。猎头周敏把她的简历翻了翻，说：'你写的没错，但你在帮面试官否定你自己。'",
+      "mentor": "future",
+      "source_refs": [],
+      "min_words": 8000,
+      "failure_archives": [
+        "把COBOL经历写成劣势而非核心竞争力"
+      ]
+    },
+    "2": {
+      "title": "COBOL经历的翻译器 —— STAR法则与技术背景重新包装",
+      "part": "Part1 重新定位篇",
+      "marker": "CH2",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "赵磊",
+        "company": "某互联网大厂",
+        "tagline": "你的过去是什么不重要，你能给我解决什么问题才重要"
+      },
+      "key_topics": [
+        "STAR法则实战（Situation/Task/Action/Result）",
+        "金融级零容错思维如何包装成AI系统优势",
+        "\"传统经验→AI语境\"翻译框架",
+        "简历项目故事的三种叙事结构"
+      ],
+      "story_hook": "面试官赵磊问：'你最有成就感的项目是什么？'林雪脑子里浮现的全是COBOL批处理模块，她不知道怎么把它讲成AI时代有价值的事",
+      "mentor": "future",
+      "source_refs": [],
+      "min_words": 8000,
+      "failure_archives": [
+        "STAR故事里Result全是模糊描述，没有数字支撑"
+      ]
+    },
+    "3": {
+      "title": "两个Side Project的面试剧本 —— 如何讲好项目故事",
+      "part": "Part1 重新定位篇",
+      "marker": "CH3",
+      "interviewer": {
+        "type": "创业公司CTO",
+        "name": "陈志远",
+        "company": "某AI工具创业公司",
+        "tagline": "我不care你学了多少，我care你做了什么"
+      },
+      "key_topics": [
+        "AI自动化测试平台项目故事（素材库A）",
+        "RAG知识库系统项目故事（素材库B）",
+        "\"被往死里问\"的预演",
+        "项目简介→深挖→短板三段式"
+      ],
+      "story_hook": "林雪用8个月业余时间做了两个项目。CTO陈志远问：'你说这个测试平台一天省了多少钱？你怎么算的？'她之前从没想过这个问题",
+      "mentor": "ai",
+      "source_refs": [
+        "A0",
+        "A1",
+        "A4",
+        "B0",
+        "B1"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "讲项目只讲自己做了什么，不讲解决了什么问题",
+        "被追问到数字时开始模糊"
+      ]
+    },
+    "4": {
+      "title": "LLM/Token/上下文窗口 —— 非CS背景的第一课",
+      "part": "Part2 基础概念关",
+      "marker": "CH4",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "李昊",
+        "company": "某云计算大厂",
+        "tagline": "基础不牢，地动山摇"
+      },
+      "key_topics": [
+        "Token化与分词（用保险合同类比）",
+        "上下文窗口管理（用批处理作业内存类比）",
+        "Temperature与输出随机性",
+        "模型成本计算：Token计费逻辑",
+        "Prompt注入基础防御"
+      ],
+      "story_hook": "林雪在面试前一天看到一道题：'解释LLM的上下文窗口限制及其对Agent设计的影响。'她发现自己说不出超过两句话",
+      "mentor": "ai",
+      "source_refs": [
+        "A1"
+      ],
+      "min_words": 8000,
+      "failure_archives": [
+        "把上下文窗口溢出说成'BUG'而非工程设计约束"
+      ]
+    },
+    "5": {
+      "title": "Prompt工程：从COBOL批处理指令到AI自然语言指令",
+      "part": "Part2 基础概念关",
+      "marker": "CH5",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "张晓峰",
+        "company": "某AI独角兽",
+        "tagline": "Prompt是工程，不是魔法"
+      },
+      "key_topics": [
+        "System Prompt设计原则（用JCL作业描述类比）",
+        "Few-shot示例设计",
+        "Chain-of-Thought推理链",
+        "Prompt版本管理（类比代码版本控制）",
+        "结构化输出与验证"
+      ],
+      "story_hook": "面试官张晓峰让林雪现场写一个Prompt，让AI提取保险合同里的关键条款。她写了，但提取结果完全错乱——她意识到自己从没系统学过这个",
+      "mentor": "ai",
+      "source_refs": [
+        "A1"
+      ],
+      "min_words": 8000,
+      "failure_archives": [
+        "Prompt写得像自然语言作文，没有任何结构约束"
+      ]
+    },
+    "6": {
+      "title": "Agent与ReAct：类比保险核心系统的业务流程引擎",
+      "part": "Part2 基础概念关",
+      "marker": "CH6",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "王强",
+        "company": "某金融科技公司",
+        "tagline": "你能不能用你懂的东西解释你刚学的东西？"
+      },
+      "key_topics": [
+        "ReAct循环（Thought/Action/Observation，用核心系统批处理流程类比）",
+        "Tool调用机制",
+        "Agent状态管理",
+        "循环终止条件设计",
+        "预算控制（类比批处理作业quota）"
+      ],
+      "story_hook": "面试官王强说：'你做保险核心系统这么多年，你觉得Agent和你们的批处理作业有什么本质区别？'林雪愣了一下——这个问题她从来没想过",
+      "mentor": "architect",
+      "source_refs": [
+        "A1",
+        "C2"
+      ],
+      "min_words": 8000,
+      "failure_archives": [
+        "背了ReAct定义但无法用自己的话解释"
+      ]
+    },
+    "7": {
+      "title": "LangGraph多Agent编排：Supervisor模式与任务分工",
+      "part": "Part3 Agent深挖关",
+      "marker": "CH7",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "陈博",
+        "company": "某互联网大厂AI部门",
+        "tagline": "多Agent系统设计才是考验真实工程能力的地方"
+      },
+      "key_topics": [
+        "State/Node/Edge核心架构",
+        "Supervisor模式vs并行模式",
+        "4个专化Agent的分工设计（api/ui/perf/testcase）",
+        "中间件链串联原理",
+        "子图Subgraph与并行Map-Reduce"
+      ],
+      "story_hook": "面试官陈博打开白板：'给我画一下你那个测试平台的多Agent架构图，越详细越好。'林雪开始画，但中间件部分她画到一半停下来了",
+      "mentor": "architect",
+      "source_refs": [
+        "A0",
+        "A1",
+        "A2"
+      ],
+      "min_words": 12000,
+      "failure_archives": [
+        "架构图只画了Agent没画中间件",
+        "解释不清楚为什么用LangGraph不用LangChain"
+      ]
+    },
+    "8": {
+      "title": "中间件栈：成本治理、预算控制与防护机制",
+      "part": "Part3 Agent深挖关",
+      "marker": "CH8",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "刘工",
+        "company": "某云厂商",
+        "tagline": "成本控制意识是区分Senior和Junior的核心指标"
+      },
+      "key_topics": [
+        "TokenBudgetMiddleware（max_total_input_tokens=200_000）",
+        "ConsecutiveRetryGuardMiddleware（max_consecutive_errors=2）",
+        "MCPCallLimiterMiddleware（各工具上限参数）",
+        "UI Agent $25/天→成本审计5大根因",
+        "ModelRouterMiddleware按复杂度路由"
+      ],
+      "story_hook": "面试官刘工问：'你说成本从$25/天大幅下降，具体怎么做到的？TokenBudget中间件的参数你是怎么定的？'林雪开始回答，但说到recursion_limit的具体数值时她停顿了",
+      "mentor": "architect",
+      "source_refs": [
+        "A1",
+        "A4"
+      ],
+      "min_words": 12000,
+      "failure_archives": [
+        "说了有中间件但说不出具体参数和设计思路"
+      ]
+    },
+    "9": {
+      "title": "CapabilityOS与Agent可观测性：让AI系统可审计",
+      "part": "Part3 Agent深挖关",
+      "marker": "CH9",
+      "interviewer": {
+        "type": "技术VP",
+        "name": "张VP",
+        "company": "某中型科技公司",
+        "tagline": "一个系统如果不能被审计，就不能被信任"
+      },
+      "key_topics": [
+        "CapabilityOS三层检索（SQLite精确/Ollama向量/Claude推理）",
+        "nomic-embed-text零Claude Token语义检索",
+        "AST调用图分析",
+        "LLM调用链路追踪",
+        "ArgoCD+Helm+Grafana/Loki/Tempo可观测栈"
+      ],
+      "story_hook": "张VP问：'如果Agent产生了一个离奇的测试用例，你怎么debug？'林雪说'查日志'，张VP反问：'什么日志？你们存了Agent的完整执行轨迹吗？'",
+      "mentor": "test",
+      "source_refs": [
+        "A1",
+        "A3"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "可观测性只说了监控，没提Agent执行轨迹/决策链路"
+      ]
+    },
+    "10": {
+      "title": "从向量检索到知识图谱：LightRAG的mix模式",
+      "part": "Part4 RAG深挖关",
+      "marker": "CH10",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "吴博",
+        "company": "某搜索引擎公司",
+        "tagline": "你说用了LightRAG，能告诉我为什么不用纯向量检索吗？"
+      },
+      "key_topics": [
+        "5种检索模式对比（local/global/hybrid/mix/naive）",
+        "知识图谱实体关系抽取",
+        "mix模式：KG+向量混合检索原理",
+        "双阶段LLM（索引轻模型/查询强模型）",
+        "Citation/Attribution文件溯源"
+      ],
+      "story_hook": "面试官吴博说：'你说用了mix模式，能现场解释一下local和global模式的区别，以及你为什么选mix而不是hybrid吗？'",
+      "mentor": "ai",
+      "source_refs": [
+        "B0",
+        "B1",
+        "B3"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "把5种检索模式全混在一起说不清楚区别"
+      ]
+    },
+    "11": {
+      "title": "Chunking策略与Reranker：召回质量的工程学",
+      "part": "Part4 RAG深挖关",
+      "marker": "CH11",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "赵磊",
+        "company": "某大厂NLP团队",
+        "tagline": "召回质量70%卡在分块策略上，你能解释为什么吗？"
+      },
+      "key_topics": [
+        "固定分块vs语义分块的权衡",
+        "保险合同文本的分块挑战（长条款/嵌套结构）",
+        "Cross-Encoder重排原理",
+        "LLM缓存（enable_llm_cache hash命中）",
+        "并发控制asyncio.Semaphore（max_parallel_insert=2-10）"
+      ],
+      "story_hook": "面试官赵磊问：'你们的RAG召回率大概是多少？你怎么知道的？'林雪有点慌——她没有一个具体的评估数字",
+      "mentor": "architect",
+      "source_refs": [
+        "B1",
+        "B2",
+        "B3"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "说了有Reranker但解释不了Cross-Encoder的基本原理"
+      ]
+    },
+    "12": {
+      "title": "RAG评估体系：如何向面试官证明系统有效",
+      "part": "Part4 RAG深挖关",
+      "marker": "CH12",
+      "interviewer": {
+        "type": "技术VP",
+        "name": "李VP",
+        "company": "某金融科技独角兽",
+        "tagline": "没有评估指标的AI系统，就是在赌博"
+      },
+      "key_topics": [
+        "RAGAS评估框架（faithfulness/answer_relevancy/context_recall）",
+        "LLM-as-judge局限性（无golden baseline）",
+        "如何用业务指标弥补技术评估缺失",
+        "Embedding模型升级的向量迁移难题",
+        "评估结果如何反哺系统优化（数据飞轮缺失问题）"
+      ],
+      "story_hook": "李VP直接问：'你们系统的召回率和答案准确率是多少？'林雪深吸一口气——她知道这个问题没有完美答案，但她已经想好了怎么诚实应对",
+      "mentor": "test",
+      "source_refs": [
+        "B1",
+        "B2"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "被问到评估数字时支支吾吾，或直接编造一个数字"
+      ]
+    },
+    "13": {
+      "title": "多租户AI平台：成本隔离与可观测性设计",
+      "part": "Part5 系统设计关",
+      "marker": "CH13",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "沈工",
+        "company": "某云厂商架构组",
+        "tagline": "多租户设计是架构师和Senior的分水岭"
+      },
+      "key_topics": [
+        "org_id隔离与多租户架构",
+        "配额管理（租户独立TokenBudget）",
+        "成本归因（哪个租户用了多少）",
+        "可观测性三支柱（Traces/Metrics/Logs）",
+        "Grafana/Loki/Tempo实际配置"
+      ],
+      "story_hook": "系统设计题：'给你一个AI测试平台，需要支持100个企业客户，每个客户的数据要完全隔离，成本要独立计费。请设计架构。'",
+      "mentor": "architect",
+      "source_refs": [
+        "A1",
+        "A3"
+      ],
+      "min_words": 12000,
+      "failure_archives": [
+        "设计多租户时只考虑了数据隔离，忽略了成本隔离和配额管理"
+      ]
+    },
+    "14": {
+      "title": "Vendor Lock-in：如何设计可切换的模型抽象层",
+      "part": "Part5 系统设计关",
+      "marker": "CH14",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "周架构师",
+        "company": "某互联网大厂",
+        "tagline": "Vendor lock-in是技术债，只是不知道什么时候还"
+      },
+      "key_topics": [
+        "模型路由现状：硬编码anthropic:前缀只能同供应商切型号（A3）",
+        "真正的Vendor抽象层设计",
+        "OpenAI兼容API的意义",
+        "模型切换应急演练",
+        "\"Anthropic明天涨价怎么办\"的回答框架"
+      ],
+      "story_hook": "面试官周架构师问：'如果Anthropic明天宣布涨价一倍，你们多久能切到OpenAI？'林雪想了想model_router.py里的代码——她知道这是个坏消息",
+      "mentor": "architect",
+      "source_refs": [
+        "A1",
+        "A3"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "回避Vendor lock-in问题，或声称'我们很容易切换'但说不出方案"
+      ]
+    },
+    "15": {
+      "title": "生产部署：从手动SSH到ArgoCD+Helm的演进",
+      "part": "Part5 系统设计关",
+      "marker": "CH15",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "何工",
+        "company": "某DevOps平台公司",
+        "tagline": "部署方式暴露了工程成熟度"
+      },
+      "key_topics": [
+        "CI/CD演进：GitHub Actions→手动SSH→ArgoCD+Helm（A2）",
+        "cosign镜像签名+SBOM供应链安全",
+        "Docker网络通信坑（localhost硬编码→环境变量化）",
+        "Canary发布vs蓝绿部署选型",
+        "\"CI免费分钟用尽\"如何诚实解释"
+      ],
+      "story_hook": "面试官何工看了看林雪的项目，问：'你们是怎么做CI/CD的？'林雪知道这个问题的诚实答案不好看——但她已经准备好了",
+      "mentor": "test",
+      "source_refs": [
+        "A1",
+        "A2",
+        "C1",
+        "C3"
+      ],
+      "min_words": 10000,
+      "failure_archives": [
+        "CI/CD只说了Docker部署，没说演进历史和当前实际状态"
+      ]
+    },
+    "16": {
+      "title": "诚实应对工程短板：第一轮追问",
+      "part": "Part6 终极追问关",
+      "marker": "CH16",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "张Principal",
+        "company": "某互联网大厂",
+        "tagline": "我不在乎你做了什么，我在乎你知不知道你没做什么"
+      },
+      "key_topics": [
+        "Prompt注入防御缺失（A3：PDF/Excel提取直接拼context无sanitization）",
+        "Eval无金标准数据集（A3：纯LLM-as-judge自评）",
+        "RAG无embedding迁移方案（B2）",
+        "如何把短板讲成'成长性思维'",
+        "诚实应对vs死扛的得分差异"
+      ],
+      "story_hook": "张Principal把林雪的项目PDF放在桌上说：'我看了你的代码，在testcase/tools.py第746行，你们是把PDF内容直接拼进context的。你知道这意味着什么吗？'",
+      "mentor": "architect",
+      "source_refs": [
+        "A3",
+        "B2"
+      ],
+      "min_words": 12000,
+      "failure_archives": [
+        "被问到工程短板时立即开始解释为什么没做，而不是先承认问题存在"
+      ]
+    },
+    "17": {
+      "title": "极限压力追问：如何在连续追问中保持可信度",
+      "part": "Part6 终极追问关",
+      "marker": "CH17",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "王Staff",
+        "company": "某互联网大厂",
+        "tagline": "我要连问5个问题，每个都比上一个更深，看你什么时候说'我不知道'"
+      },
+      "key_topics": [
+        "JWT secret硬编码问题（A3：settings.py:15-18）",
+        "Agent执行不可重放（A3：无checkpoint/execution-trace）",
+        "数据飞轮缺失（A3：evaluator打分后无反哺）",
+        "输出安全只查AI输出不查输入（A3）",
+        "Eval无ensemble单model打分（A3）"
+      ],
+      "story_hook": "王Staff说：'我接下来要追问你5个技术问题，每个都比上一个深。你可以随时说不知道，但我会记录你在哪里停下来。'林雪深吸一口气——她已经准备好了",
+      "mentor": "test",
+      "source_refs": [
+        "A3",
+        "B2"
+      ],
+      "min_words": 12000,
+      "failure_archives": [
+        "追问链中途开始编造解决方案而不是承认局限"
+      ]
+    },
+    "18": {
+      "title": "年龄与转岗焦虑：如何把45岁COBOL经历变成差异化优势",
+      "part": "Part7 行为面试与谈薪关",
+      "marker": "CH18",
+      "interviewer": {
+        "type": "猎头/HR",
+        "name": "周敏",
+        "company": "某头部科技猎头",
+        "tagline": "45岁不是劣势，除非你自己这样认为"
+      },
+      "key_topics": [
+        "年龄焦虑的面试表现（和如何克服）",
+        "COBOL零容错→AI系统工程师的叙事框架",
+        "行为面试STAR法则进阶：量化影响力",
+        "\"为什么转型\"的三种叙事（危机/主动/使命）",
+        "非科班背景的包装策略"
+      ],
+      "story_hook": "HR周敏问：'你比同期应聘者年长15-20岁，你怎么看自己的竞争力？'这是林雪最害怕的问题，也是她思考最久的问题",
+      "mentor": "future",
+      "source_refs": [],
+      "min_words": 8000,
+      "failure_archives": [
+        "在行为面试中提到年龄时显得防御性而非自信"
+      ]
+    },
+    "19": {
+      "title": "Offer策略与薪资谈判：从传统岗位到AI Native的定价逻辑",
+      "part": "Part7 行为面试与谈薪关",
+      "marker": "CH19",
+      "interviewer": {
+        "type": "猎头/HR",
+        "name": "周敏",
+        "company": "某头部科技猎头",
+        "tagline": "薪资谈判是技术，第一次开口定乾坤"
+      },
+      "key_topics": [
+        "AI Native岗位薪资市场（Junior/Senior/Staff/Architect各档）",
+        "COBOL→AI转岗的薪资定位策略",
+        "多Offer比较框架（不只看薪资）",
+        "谈判时机与策略（第几轮谈/怎么开口）",
+        "\"目标薪资不低于原岗位\"的实现路径"
+      ],
+      "story_hook": "三家公司都发来了offer，薪资区间各不相同。猎头周敏说：'林雪，你现在有筹码了，但你知道怎么用吗？'",
+      "mentor": "future",
+      "source_refs": [],
+      "min_words": 8000,
+      "failure_archives": [
+        "在没有其他offer的情况下就开始谈薪资"
+      ]
+    },
+    "20": {
+      "title": "模拟终面实录 + 三家Offer",
+      "part": "终章",
+      "marker": "CH20",
+      "interviewer": {
+        "type": "大厂资深面试官",
+        "name": "综合考官团",
+        "company": "三家公司终面模拟",
+        "tagline": "这不是面试，这是你证明自己的最后机会"
+      },
+      "key_topics": [
+        "全流程终面模拟（系统设计+项目深挖+追问链+行为面试）",
+        "林雪的完整面试回答演示",
+        "三家Offer的比较与决策",
+        "COBOL工程师转型AI Native的完整路径总结",
+        "给下一位转型者的信"
+      ],
+      "story_hook": "8个月后。林雪坐在第三家公司的终面会议室里，面对着五位面试官。她想起了那个周四下午，想起了写了3年的COBOL模块，想起了第一次用Python跑通API的那个晚上",
+      "mentor": "future",
+      "source_refs": [
+        "A0",
+        "A1",
+        "A3",
+        "B0",
+        "B1",
+        "B2"
+      ],
+      "min_words": 8000,
+      "failure_archives": []
+    }
+  }
+}

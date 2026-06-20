@@ -1,0 +1,133 @@
+id: "KN-C-000022"
+type: Concept
+name: "Tool Use (Function Calling)"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - agent
+  - tool-calling
+  - function-calling
+
+aliases:
+  - "Function Calling"
+  - "工具调用"
+  - "Tool Calling"
+
+summary: "LLM 通过结构化 JSON 描述要调用的函数，由宿主程序执行后将结果返回——让 LLM 从'说话者'变成'行动者'。"
+
+definition: |
+  Tool Use（Function Calling）是现代 LLM API 的核心能力：
+  开发者以 JSON Schema 格式向 LLM 描述可用的"工具"（函数），
+  LLM 在需要时输出结构化的工具调用请求（函数名 + 参数），
+  宿主程序执行实际函数并将结果返回给 LLM，LLM 基于结果继续推理。
+  这是 Agent 调用外部工具的基础机制。
+
+why: |
+  LLM 本身不能搜索互联网、查询数据库、执行代码——它只能生成文本。
+  Tool Use 打破了这个限制：
+  - LLM 决定"调用什么工具、传什么参数"
+  - 宿主程序执行实际操作（访问外部系统）
+  - 结果返回给 LLM 继续分析
+  这样 LLM 就获得了访问实时数据、执行代码、操作系统的能力。
+
+mental_model: |
+  Tool Use = 专业助理（LLM）+ 执行部门（工具）
+  - LLM 是聪明的策略师：知道"现在要查数据库，参数是…"
+  - 工具是实际执行的人：真正去查数据库，返回结果
+  - LLM 不能直接查数据库，就像 CEO 不亲自操作服务器——
+    他们发出指令，执行人完成操作，汇报结果
+
+how_it_works: |
+  工具调用的完整流程：
+
+  Step 1：定义工具（JSON Schema）
+  tools = [
+    {
+      "name": "search_database",
+      "description": "根据用户 ID 查询用户信息",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "user_id": {"type": "string", "description": "用户 ID"},
+          "fields": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["user_id"]
+      }
+    }
+  ]
+
+  Step 2：LLM 决策（输出工具调用请求）
+  # LLM 不直接执行，而是输出：
+  {
+    "tool_call": {
+      "name": "search_database",
+      "parameters": {"user_id": "U12345", "fields": ["name", "email"]}
+    }
+  }
+
+  Step 3：宿主程序执行
+  result = search_database(user_id="U12345", fields=["name", "email"])
+  # result = {"name": "张三", "email": "zhang@example.com"}
+
+  Step 4：将结果返回给 LLM
+  messages.append({"role": "tool", "content": json.dumps(result)})
+  # LLM 基于结果继续推理并生成最终回复
+
+tool_design_principles:
+  - "工具名和 description 必须清晰准确：LLM 根据 description 决定是否调用这个工具"
+  - "参数类型和 description 要精确：LLM 根据参数 description 生成参数值"
+  - "工具数量不宜过多（不超过 10-15 个）：工具越多，LLM 选择准确率越低"
+  - "一个工具做一件事：避免多功能工具，清晰的边界使 LLM 更准确"
+  - "工具返回值要结构化（JSON），并包含足够信息让 LLM 做决策"
+
+security_considerations:
+  critical_rules:
+    - rule: "工具白名单：明确限制 Agent 可以调用哪些工具"
+      risk: "无限制工具访问可能导致 Agent 读取敏感文件、执行危险命令"
+    - rule: "代码执行沙箱隔离"
+      risk: "未隔离的代码执行工具可能被 Agent 或恶意输入利用执行系统命令"
+    - rule: "防止 Tool Injection：外部数据（网页内容、用户输入）不能直接作为工具参数执行"
+      risk: "攻击者在网页中嵌入指令，Agent 爬取后直接执行，导致数据泄露或系统破坏"
+    - rule: "参数验证：工具层必须验证参数合法性，不信任 LLM 生成的参数"
+      risk: "LLM 生成的路径如 ../../.env 可能被工具直接执行，读取敏感文件"
+
+parallel_tool_calls: |
+  现代 LLM API 支持并行工具调用（Parallel Function Calling）：
+  LLM 可以在一次响应中请求多个工具调用，宿主程序并行执行后一起返回。
+  这显著提升 Agent 执行效率（减少来回次数）。
+  例：同时调用 search_web 和 query_database，比串行快 2 倍。
+
+relationships:
+  is_part_of:
+    - id: "KN-C-000020"
+      note: "Tool Use 是 Agent 扩展能力的核心机制"
+  used_in:
+    - id: "KN-C-000021"
+      note: "Agent Loop 中的 Action 阶段就是 Tool Use"
+  related_security:
+    - id: "KN-C-000040"
+      note: "Tool Injection 是 Tool Use 的主要安全威胁"
+    - id: "KN-C-000041"
+      note: "Agent 权限设计依赖 Tool Use 的白名单机制"
+  related_protocol:
+    - id: "KN-R-000001"
+      note: "MCP（Model Context Protocol）是标准化 Tool Use 的协议"
+
+interview_points:
+  - "Tool Use / Function Calling 的工作原理是什么？完整流程？"
+  - "工具的 description 为什么重要？写差了会有什么影响？"
+  - "Tool Use 的主要安全风险是什么？如何防御 Tool Injection？"
+  - "并行工具调用是什么？有什么优势？"
+  - "工具应该如何设计？有哪些原则？（L2+ 考察）"
+  - "MCP 和 Function Calling 的关系是什么？（L2+ 考察）"
+
+exam_points:
+  - "Tool Use = LLM 输出工具调用请求（JSON）→ 宿主程序执行 → 结果返回 LLM"
+  - "LLM 不直接执行工具，只描述'调用什么、传什么参数'"
+  - "工具 description 决定 LLM 是否选择该工具；必须清晰准确"
+  - "安全三要素：白名单 + 沙箱隔离 + 防 Tool Injection"
+
+one_liner: "Tool Use = LLM 大脑下令，宿主程序执行，结果汇报——让 LLM 从'说话者'变成'行动者'。"
+difficulty: intermediate

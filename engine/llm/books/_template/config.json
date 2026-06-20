@@ -1,0 +1,36 @@
+{
+  "book_title": "新书标题（改这里）",
+  "protagonist": "主角描述（如：陈浩，27岁Java工程师）",
+
+  "stages": [
+    {"id": 1, "name": "施工图",     "provider": "deepseek"},
+    {"id": 2, "name": "草稿前半",   "provider": "deepseek"},
+    {"id": 3, "name": "草稿后半",   "provider": "deepseek"},
+    {"id": 4, "name": "DS技术审稿", "provider": "deepseek"},
+    {"id": 5, "name": "修订",       "provider": "chatgpt"},
+    {"id": 6, "name": "终审",       "provider": "chatgpt"}
+  ],
+
+  "chapters": {
+    "0": {
+      "title": "第0章标题（序章）",
+      "part": "序章",
+      "key_topics": ["主题1", "主题2"],
+      "story_hook": "开场故事的钩子一句话",
+      "mentor": "导师名称",
+      "min_words": 5000,
+      "failure_archives": []
+    },
+    "1": {
+      "title": "第1章标题",
+      "part": "第一部分",
+      "key_topics": ["主题1", "主题2", "主题3"],
+      "story_hook": "本章故事钩子",
+      "mentor": "导师名称",
+      "tech_stack": ["技术1", "技术2"],
+      "enterprise_stage": "POC",
+      "min_words": 8000,
+      "failure_archives": ["失败案例标题1", "失败案例标题2"]
+    }
+  }
+}

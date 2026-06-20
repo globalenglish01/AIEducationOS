@@ -1,0 +1,117 @@
+id: "KN-C-000005"
+type: Concept
+name: "Temperature"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - foundation
+  - llm
+  - parameter
+  - reproducibility
+
+aliases:
+  - "温度参数"
+  - "采样温度"
+
+summary: "控制 LLM 输出随机性的参数：0 = 最确定，1 = 标准，>1 = 更随机，调试时用0，生产按任务调。"
+
+definition: |
+  Temperature 是控制 LLM 输出概率分布"锐利程度"的超参数，取值范围通常为 0-2。
+  Temperature=0 时，模型每次选择概率最高的 Token（贪婪解码，输出完全确定）。
+  Temperature 越高，低概率 Token 被选中的机会越大，输出越多样、越随机。
+
+why: |
+  LLM 生成每个 Token 时，会得到词表中所有 Token 的概率分布。
+  如果永远选最高概率（Temperature=0），输出稳定但可能过于"平庸"、缺乏创意。
+  如果完全随机采样，输出会乱七八糟。
+  Temperature 让我们在"稳定"和"创意"之间找到适合具体任务的平衡点。
+
+mental_model: |
+  Temperature = 调酒师调酒的"大胆程度"
+  - Temperature=0：严格按经典配方，每次完全相同
+  - Temperature=0.7：稍微发挥，有点变化但不出格
+  - Temperature=1.5：大胆创新，可能出奇制胜，也可能难以下咽
+
+  或者：
+  Temperature = 填空题的答题策略
+  - 低温：永远填最常见的词（保守）
+  - 高温：随机从候选词中抽取（大胆，可能出现意外之喜，也可能错误）
+
+how_it_works: |
+  技术过程：
+  1. LLM 输出每个Token的原始分数（logits）
+  2. 用 Temperature 缩放：logits / Temperature
+     - Temperature < 1：分布变"尖锐"，高概率Token概率更高，低概率Token概率更低
+     - Temperature > 1：分布变"平坦"，各Token概率差距缩小，随机性增加
+  3. Softmax 转为概率分布
+  4. 从概率分布中采样
+
+core_principles:
+  - "Temperature=0 是调试模式：输出确定，可复现，便于排查问题"
+  - "Temperature 不等于质量：高温不是'更好'，是'更多样'——适合创意任务"
+  - "生产环境的 Temperature 应按任务类型设置，不是越低越好"
+  - "Temperature=0 不代表输出永远正确，只代表输出稳定"
+
+examples:
+  - scenario: "代码生成"
+    description: "Temperature=0~0.2：代码需要精确，避免随机引入 bug"
+  - scenario: "创意写作"
+    description: "Temperature=0.8~1.2：需要多样化表达，避免千篇一律"
+  - scenario: "问答/摘要"
+    description: "Temperature=0.3~0.7：平衡准确性和自然流畅性"
+  - scenario: "调试 Prompt"
+    description: "Temperature=0：每次输出相同，方便对比 Prompt 修改前后的效果"
+
+counter_examples:
+  - "不要对所有任务用同一个 Temperature，任务类型不同最优值不同"
+  - "不要认为 Temperature=0 就没有幻觉——确定性不等于准确性"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "Temperature 控制 LLM 的采样方式，先理解 LLM"
+    - id: "KN-C-000002"
+      note: "Temperature 作用于 Token 级别的概率分布"
+  related_concepts:
+    - id: "KN-C-000004"
+      note: "Temperature 影响幻觉率：高温可能增加幻觉"
+
+common_misconceptions:
+  - misconception: "Temperature=0 输出最准确"
+    correction: "Temperature=0 输出最稳定（可复现），不代表最准确。LLM 最高概率的输出仍可能是错的。"
+  - misconception: "Temperature 越高，输出越聪明"
+    correction: "Temperature 越高，输出越多样，但也越容易偏离主题、产生幻觉。聪明与否和 Temperature 无关。"
+  - misconception: "Temperature 是生产环境最重要的参数"
+    correction: "Temperature 是最容易调的参数，但影响最小。Prompt 设计、RAG 质量、模型选择的影响远大于 Temperature。"
+
+best_practices:
+  - "调试和测试 Prompt 时，固定 Temperature=0，确保结果可复现"
+  - "生产环境根据任务设置：代码/结构化输出=0~0.2，通用问答=0.3~0.7，创意=0.7~1.0"
+  - "Evaluation 时使用 Temperature=0，确保评测结果可复现"
+  - "不同任务做 Temperature 扫描（0/0.3/0.7/1.0），找到最优点"
+
+anti_patterns:
+  - pattern: "所有任务都用 Temperature=1（默认值）"
+    consequence: "代码类任务随机性过高，稳定性差，难以调试"
+  - pattern: "调试时不固定 Temperature"
+    consequence: "同一 Prompt 每次输出不同，无法判断是 Prompt 问题还是随机性问题"
+
+interview_points:
+  - "Temperature 参数的作用是什么？取值范围和效果？"
+  - "调试 Prompt 时为什么要设置 Temperature=0？"
+  - "不同任务类型应该如何设置 Temperature？给出你的判断框架"
+  - "Temperature=0 和 Temperature=1 输出分别有什么特点？"
+
+exam_points:
+  - "Temperature=0：贪婪解码，输出确定，可复现"
+  - "Temperature越高：输出越随机多样，低概率Token被选中机会越大"
+  - "代码生成建议低Temperature（0-0.2），创意写作建议高Temperature（0.7-1.2）"
+  - "Evaluation时用Temperature=0保证结果可复现"
+
+one_liner: "Temperature=0是确定性模式（调试用），越高越随机，按任务类型调，不是越低越好。"
+difficulty: beginner
+
+references:
+  - "Temperature Sampling 技术解释: https://huggingface.co/blog/how-to-generate"

@@ -1,0 +1,191 @@
+id: "KN-C-000037"
+type: Framework
+name: "RAGAS（RAG 评估框架）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - evaluation
+  - rag
+  - ragas
+  - framework
+
+aliases:
+  - "RAG Assessment"
+  - "RAG 评估"
+  - "ragas"
+
+summary: "专门评估 RAG 系统质量的开源框架，通过 4 个核心指标（无需人工标注答案）自动量化检索和生成质量。"
+
+definition: |
+  RAGAS（Retrieval Augmented Generation Assessment）是专门为 RAG 系统设计的评估框架。
+  核心特点：无参考答案评估（Reference-free Evaluation）——
+  不需要人工标注的标准答案，只需要问题、LLM 生成的答案、检索到的上下文，
+  就能从多个维度自动评估 RAG 系统的质量。
+  底层机制：使用 LLM-as-Judge 自动计算每个指标。
+
+why: |
+  评估 RAG 系统的难点：
+  1. 有标准答案的测试集太少（人工标注成本高）
+  2. RAG 质量涉及两个阶段：检索质量 + 生成质量，需要分别衡量
+  3. 生成质量难以用简单规则衡量（语义理解、忠实度）
+
+  RAGAS 解决方案：
+  - 4 个指标覆盖检索和生成两个阶段
+  - 无参考答案：用 LLM 自动判断（无需人工标注）
+  - 端到端：一个框架评估整个 RAG Pipeline
+
+mental_model: |
+  RAGAS = RAG 系统的体检报告
+  4 个指标 = 4 项体检项目：
+  - Context Recall = 检索有没有漏掉关键信息（查全率）
+  - Context Precision = 检索到的信息有没有噪音（查准率）
+  - Faithfulness = 答案是否诚实（有没有编造）
+  - Answer Relevancy = 答案是否切题（有没有跑题）
+
+  四项全通过 → RAG 系统健康
+  某项低分 → 定位具体问题（是检索问题还是生成问题？）
+
+four_core_metrics:
+  context_recall:
+    name: "Context Recall（上下文召回率）"
+    measures: "生成正确答案所需的信息，是否都被检索到了？"
+    requires: "问题 + 参考答案 + 检索到的上下文"
+    formula: "= 参考答案中被检索上下文覆盖的句子数 / 参考答案总句子数"
+    range: "0 到 1，越高越好"
+    low_score_means: "检索漏掉了关键信息 → 优化 Chunking 策略或增加 Top-K"
+    note: "这是 RAGAS 中唯一需要参考答案的指标"
+
+  context_precision:
+    name: "Context Precision（上下文精确率）"
+    measures: "检索到的内容中，有多少是真正有用的（非噪音）？"
+    requires: "问题 + 检索到的上下文"
+    formula: "= 有用的上下文数量 / 检索到的总上下文数量"
+    range: "0 到 1，越高越好"
+    low_score_means: "检索到了太多无关内容 → 优化 Embedding 模型，或加 Reranking"
+
+  faithfulness:
+    name: "Faithfulness（忠实度）"
+    measures: "答案中的每个陈述，是否都能在检索到的上下文中找到依据？"
+    requires: "检索到的上下文 + LLM 生成的答案"
+    formula: "= 有上下文依据的陈述数 / 答案总陈述数"
+    range: "0 到 1，越高越好"
+    low_score_means: "LLM 在用幻觉填补空白 → 优化 RAG Prompt，加强'不确定时说不知道'的约束"
+
+  answer_relevancy:
+    name: "Answer Relevancy（答案相关性）"
+    measures: "答案是否真正回答了用户的问题？（有没有跑题或答非所问）"
+    requires: "问题 + LLM 生成的答案"
+    formula: "根据答案反向生成若干问题，计算这些问题与原问题的语义相似度"
+    range: "0 到 1，越高越好"
+    low_score_means: "答案跑题了 → 优化 System Prompt 中对任务的定义"
+
+how_it_works: |
+  RAGAS 使用示例：
+
+  from ragas import evaluate
+  from ragas.metrics import (
+      faithfulness,
+      answer_relevancy,
+      context_recall,
+      context_precision,
+  )
+  from datasets import Dataset
+
+  # 准备评估数据集
+  data = {
+      "question": ["什么是 RAG？", "LangGraph 有什么优势？"],
+      "answer": [
+          "RAG 是检索增强生成，通过检索外部知识库...",
+          "LangGraph 提供了状态机式的 Agent 编排..."
+      ],
+      "contexts": [
+          ["RAG（Retrieval-Augmented Generation）是..."],  # 检索到的上下文
+          ["LangGraph 基于有向图建模 Agent 工作流..."]
+      ],
+      "ground_truth": [  # 仅 context_recall 需要
+          "RAG 是结合检索和生成的架构，解决 LLM 知识局限问题",
+          "LangGraph 支持状态持久化和 HITL"
+      ]
+  }
+
+  dataset = Dataset.from_dict(data)
+
+  # 运行评估
+  results = evaluate(
+      dataset=dataset,
+      metrics=[faithfulness, answer_relevancy, context_recall, context_precision],
+      llm=judge_llm,  # 指定 Judge Model
+  )
+
+  print(results)
+  # 输出：
+  # faithfulness         0.923
+  # answer_relevancy     0.871
+  # context_recall       0.845
+  # context_precision    0.756
+
+score_interpretation:
+  excellent: ">= 0.85：优秀，生产可用"
+  good: "0.70-0.85：良好，可用但有优化空间"
+  needs_improvement: "0.50-0.70：需要改进，用户体验受影响"
+  poor: "< 0.50：差，不建议上线"
+
+diagnostic_guide: |
+  根据 RAGAS 分数定位问题：
+
+  Context Recall 低 → 检索漏掉了关键信息
+  修复方向：增大 Top-K / 优化 Chunking / 改用 Hybrid Search
+
+  Context Precision 低 → 检索到太多噪音
+  修复方向：加 Reranking / 优化 Embedding 模型 / 收紧检索条件
+
+  Faithfulness 低 → LLM 在编造（幻觉）
+  修复方向：强化 RAG Prompt 中"只基于资料回答"的约束 / 加 Guardrails
+
+  Answer Relevancy 低 → 答案跑题
+  修复方向：优化 System Prompt 对任务的定义 / 改善问题意图理解
+
+best_practices:
+  - "建立固定的 RAGAS 评估集（100-500 个有代表性的问题），每次 Prompt 或系统变更后重新评估"
+  - "将 RAGAS 评估集成到 CI/CD：PR 合并前自动运行，4 个指标全部超过阈值才允许合并"
+  - "Context Recall 指标需要参考答案（ground_truth），可以用 LLM 自动生成初版再人工校验"
+  - "分维度分析：不要只看总分，每个低分维度对应不同的修复方向"
+
+anti_patterns:
+  - pattern: "只在上线前跑一次 RAGAS"
+    consequence: "知识库更新、Prompt 修改、模型升级都可能引起质量波动，持续评估才能早发现"
+  - pattern: "评估集样本太少（< 20 个）"
+    consequence: "统计置信度不够，单个样本的随机性会掩盖真实质量趋势"
+  - pattern: "用相同的 LLM 既生成答案又当 Judge"
+    consequence: "存在自我偏好偏差，Judge 会给自己的输出打虚高分"
+
+relationships:
+  uses:
+    - id: "KN-C-000036"
+      note: "RAGAS 底层用 LLM-as-Judge 计算各指标"
+  evaluates:
+    - id: "KN-C-000033"
+      note: "RAGAS 专门评估 RAG Pipeline 的质量"
+  used_with:
+    - id: "KN-C-000038"
+      note: "RAGAS 评估集是 Eval Dataset 的一种形式"
+    - id: "KN-C-000039"
+      note: "RAGAS 是 RAG 系统 Regression Testing 的核心工具"
+
+interview_points:
+  - "RAGAS 的 4 个核心指标是什么？各自衡量什么？"
+  - "RAGAS 的'无参考答案评估'是什么意思？哪个指标例外？"
+  - "Context Recall 低说明什么问题？应该怎么优化？"
+  - "Faithfulness 低说明什么问题？怎么修复？"
+  - "如何将 RAGAS 集成到 CI/CD 流水线？（L2+ 考察）"
+
+exam_points:
+  - "RAGAS 4 指标：Context Recall / Context Precision / Faithfulness / Answer Relevancy"
+  - "唯一需要参考答案的指标：Context Recall（需要 ground_truth）"
+  - "低分诊断：Recall低→检索漏信息；Precision低→检索有噪音；Faithfulness低→有幻觉；Relevancy低→答案跑题"
+  - "RAGAS 底层 = LLM-as-Judge，Judge 能力决定评估准确性"
+
+one_liner: "RAGAS = RAG 的体检报告，4 个指标分别衡量检索查全、查准、生成忠实、答案切题——无需人工标注答案。"
+difficulty: advanced

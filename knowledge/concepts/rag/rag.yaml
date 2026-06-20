@@ -1,0 +1,178 @@
+id: "KN-C-000033"
+type: Architecture
+name: "RAG（检索增强生成）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - rag
+  - architecture
+  - retrieval
+  - foundation
+
+aliases:
+  - "Retrieval-Augmented Generation"
+  - "检索增强生成"
+  - "知识增强"
+
+summary: "在 LLM 生成答案之前，先从知识库检索相关文档注入 Prompt——让 LLM 基于最新、私有的知识回答问题。"
+
+definition: |
+  RAG（Retrieval-Augmented Generation）是一种将"信息检索"与"LLM 文本生成"结合的架构模式。
+  工作流程：
+  1. 检索（Retrieve）：将用户问题向量化，从向量数据库检索语义相关的文档片段
+  2. 增强（Augment）：将检索到的文档注入 Prompt，作为 LLM 回答的上下文
+  3. 生成（Generate）：LLM 基于注入的上下文生成答案
+  RAG 让 LLM 能够"参考外部知识库"回答问题，而不是只依赖训练数据中的静态知识。
+
+why: |
+  LLM 有三大知识局限：
+  1. 训练截止日期：不了解最新信息（知识截止 2024 年则不知 2025 年的事）
+  2. 无法访问私有数据：不知道你公司的内部文档、产品手册
+  3. 幻觉风险：对训练数据中不存在的知识，LLM 可能生成听起来合理但实际错误的答案
+
+  RAG 解决方案：
+  - 知识库保存最新、私有知识
+  - 用户提问时，先检索相关片段
+  - 把这些片段放进 Prompt，LLM 基于真实文档生成答案（Grounded Generation）
+  - RAG 只减少"知识型幻觉"，无法消除所有幻觉（见 hallucination.yaml）
+
+mental_model: |
+  RAG = 开卷考试
+  - 不用 RAG 的 LLM = 闭卷考试：只能用记忆里的知识，可能记错
+  - 使用 RAG 的 LLM = 开卷考试：考试时可以翻参考书，答案更准确
+
+  但 RAG 的"翻书"很智能：
+  - 不是翻整本书，而是精准定位到"最相关的几页"
+  - LLM 读完相关页面，综合生成答案
+
+how_it_works: |
+  RAG 完整流程（分两个阶段）：
+
+  === 阶段一：离线索引（知识库构建）===
+  原始文档（PDF/网页/数据库）
+       ↓ Chunking（分块）
+  文本块列表
+       ↓ Embedding（向量化）
+  向量列表
+       ↓ 存入
+  向量数据库
+
+  === 阶段二：在线检索+生成 ===
+  用户问题
+       ↓ Embedding（向量化用户 Query）
+  Query 向量
+       ↓ ANN 检索（相似度搜索）
+  Top-K 相关 Chunk
+       ↓ 注入 Prompt
+  增强后的 Prompt
+       ↓ LLM 生成
+  基于知识库的答案
+
+  代码示例（简化版）：
+  def rag_pipeline(query: str, collection, llm) -> str:
+      # Step 1: 检索
+      query_vector = embedding_model.embed(query)
+      results = collection.query(query_embeddings=[query_vector], n_results=5)
+      context = "\n\n".join(results["documents"][0])
+
+      # Step 2: 构建增强 Prompt
+      prompt = f"""
+      请基于以下参考资料回答用户问题。
+      如果参考资料中没有相关信息，请明确说明"根据现有资料无法回答"。
+
+      参考资料：
+      {context}
+
+      用户问题：{query}
+      """
+
+      # Step 3: LLM 生成
+      return llm.chat([{"role": "user", "content": prompt}])
+
+rag_quality_factors:
+  - factor: "Chunking 策略"
+    impact: "决定能否检索到正确的知识片段"
+    optimization: "适合文档结构的分块方式 + 合理的 chunk_size"
+  - factor: "Embedding 模型质量"
+    impact: "语义向量的表达能力决定相似度计算准确性"
+    optimization: "针对语言和领域选择合适的 Embedding 模型"
+  - factor: "Top-K 值"
+    impact: "检索多少个 Chunk 注入 Prompt"
+    optimization: "通常 3-10 个；过少漏掉相关信息，过多超出 Context Window 且引入噪音"
+  - factor: "Prompt 设计"
+    impact: "告诉 LLM 如何使用参考资料，以及无法回答时怎么说"
+    optimization: "明确要求基于资料回答，明确无信息时的处理方式"
+  - factor: "Reranking"
+    impact: "检索的 Top-K 可能包含噪音，Reranker 对结果重新精排"
+    optimization: "在向量检索后加 Reranker，提升最终进入 Prompt 的 Chunk 质量"
+
+evaluation_metrics:
+  - metric: "Context Recall（上下文召回率）"
+    description: "正确答案需要的知识，是否都被检索到了？"
+  - metric: "Context Precision（上下文精确率）"
+    description: "检索到的内容中，有多少是真正有用的（而非噪音）？"
+  - metric: "Faithfulness（忠实度）"
+    description: "LLM 的答案是否基于检索到的内容生成，而不是自己编造？"
+  - metric: "Answer Relevancy（答案相关性）"
+    description: "生成的答案是否真正回答了用户的问题？"
+  - tool: "RAGAS 框架自动化评估以上 4 个维度"
+
+advanced_rag:
+  - name: "Hybrid Search"
+    description: "向量搜索（语义）+ BM25（关键词）结合，覆盖两种检索范式"
+  - name: "Reranking"
+    description: "检索后用交叉编码器对结果精排，提升进入 Prompt 的内容质量"
+  - name: "Query Expansion"
+    description: "将用户查询扩展为多个相关查询（如同义词扩展），提升召回率"
+  - name: "HyDE（假设文档嵌入）"
+    description: "先让 LLM 生成一个'假设答案'，用假设答案的向量检索真实文档"
+
+best_practices:
+  - "RAG Prompt 必须明确指定：'基于以下资料回答，资料不足时说无法回答'，防止 LLM 用幻觉填补空白"
+  - "每个检索结果携带来源（source）和置信度，最终答案附上引用，支持用户验证"
+  - "定期用 RAGAS 跑 Evaluation，监控 RAG 质量随知识库变化的漂移"
+  - "建立 Feedback 机制：收集用户对答案的评价，用于识别检索盲点和更新知识库"
+
+anti_patterns:
+  - pattern: "RAG 检索到无关内容也注入 Prompt"
+    consequence: "噪音上下文误导 LLM，答案质量反而不如不用 RAG"
+  - pattern: "不设置'无法回答'的回退机制"
+    consequence: "知识库没有相关信息时，LLM 用幻觉填充，用户以为是真实知识"
+  - pattern: "知识库从不更新"
+    consequence: "随时间推移，RAG 的知识越来越陈旧，用户获得过时信息"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000030"
+      note: "Embedding 是 RAG 语义检索的基础"
+    - id: "KN-C-000031"
+      note: "向量数据库是 RAG 知识库的存储组件"
+    - id: "KN-C-000032"
+      note: "Chunking 是 RAG 知识库构建的预处理步骤"
+  related_concepts:
+    - id: "KN-C-000004"
+      note: "RAG 只减少知识型幻觉，不能消除所有幻觉"
+    - id: "KN-C-000034"
+      note: "Reranking 是 Advanced RAG 的关键优化手段"
+    - id: "KN-C-000035"
+      note: "Hybrid Search 结合向量检索和关键词检索提升召回率"
+
+interview_points:
+  - "RAG 解决了 LLM 的哪些问题？"
+  - "RAG 的完整工作流程是什么？（离线索引 + 在线检索生成）"
+  - "RAG 能彻底解决幻觉问题吗？为什么？"
+  - "如何评估 RAG 系统的质量？有哪些关键指标？"
+  - "Advanced RAG 和 Naive RAG 的区别？有哪些优化手段？（L2+ 考察）"
+  - "RAG 和 Fine-tuning 有什么区别？各自适用什么场景？（L2+ 考察）"
+
+exam_points:
+  - "RAG = 检索（Retrieve）+ 增强（Augment）+ 生成（Generate）"
+  - "解决三大问题：知识截止日期、无法访问私有数据、幻觉风险（只减少知识型幻觉）"
+  - "两阶段：离线索引（Chunking→Embedding→存储）+ 在线处理（检索→注入→生成）"
+  - "4 个核心指标：Context Recall / Context Precision / Faithfulness / Answer Relevancy"
+  - "必须设置'无信息时明确说明'的回退机制，防止幻觉填空"
+
+one_liner: "RAG = 开卷考试模式：检索最相关的知识片段注入 Prompt，LLM 基于真实资料生成答案。"
+difficulty: intermediate

@@ -1,0 +1,177 @@
+id: "KN-C-000044"
+type: Concept
+name: "Tracing（分布式追踪）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - observability
+  - tracing
+  - debugging
+
+aliases:
+  - "链路追踪"
+  - "Distributed Tracing"
+  - "LLM Tracing"
+
+summary: "记录 Agent/LLM 调用链上每个步骤的输入、输出、耗时和成本，使复杂 AI 系统的行为可观测、可调试。"
+
+definition: |
+  Tracing（链路追踪）是记录一次 AI 任务执行过程中所有操作的技术：
+  从用户请求进入系统，到最终响应返回，中间经历的每一次 LLM 调用、
+  工具调用、检索操作都被记录为一个 Span（跨度）。
+  所有 Span 组合成一棵 Trace 树，完整呈现"这次任务经历了什么"。
+  Tracing 是 AI 系统"可观测性（Observability）"的核心支柱。
+
+why: |
+  LLM 应用的调试困难：
+  - Agent 执行了10个步骤，哪一步导致了答案质量差？
+  - LLM 调用耗时 5 秒，是哪个 Prompt 太慢了？
+  - 这次 Token 消耗为什么突然增加了 300%？
+  - 用户反馈"回答不准确"，检索阶段还是生成阶段的问题？
+
+  没有 Tracing，这些问题只能靠猜测。
+  有 Tracing，打开控制台一眼看清整个执行链路。
+
+mental_model: |
+  Tracing = 飞机黑匣子
+  - 黑匣子记录飞行过程中每个关键操作和状态变化
+  - 出事后通过黑匣子还原整个过程，精确定位问题
+  - AI Tracing：记录每次 LLM 调用的输入/输出/耗时，出问题时精确回放
+
+  Tracing = 餐厅订单追踪系统
+  - 顾客下单（Trace 开始）
+  - 服务员记单（Span 1）→ 厨房收单（Span 2）→ 备菜（Span 3）→ 出菜（Span 4）
+  - 每个步骤：负责人、开始时间、完成时间、状态
+  - 总耗时 = 所有步骤时间之和
+
+trace_anatomy:
+  trace:
+    description: "一次完整的任务执行（如一次用户请求）从开始到结束的完整记录"
+    contains: "一个 Root Span + 若干子 Span"
+    identifier: "Trace ID（全局唯一）"
+
+  span:
+    description: "Trace 中的一个操作单元"
+    fields:
+      - "span_id：唯一标识"
+      - "parent_span_id：父 Span（形成树状结构）"
+      - "name：操作名称（如 'llm_call', 'vector_search', 'tool_execute'）"
+      - "start_time / end_time：开始和结束时间"
+      - "duration_ms：耗时（毫秒）"
+      - "input：该步骤的输入（Prompt、查询参数等）"
+      - "output：该步骤的输出（LLM 响应、检索结果等）"
+      - "metadata：模型名称、Token 数量、成本估算等"
+      - "status：success / error"
+      - "error：错误信息（如果失败）"
+
+  trace_tree_example: |
+    Trace: user_query "解释什么是 RAG"
+    ├── Span: rag_pipeline (total: 2340ms)
+    │   ├── Span: embed_query (45ms)
+    │   │   └── input: "解释什么是 RAG"
+    │   │   └── output: [0.023, -0.41, ...]
+    │   ├── Span: vector_search (123ms)
+    │   │   └── input: query_vector, top_k=5
+    │   │   └── output: [chunk1, chunk2, chunk3...]
+    │   ├── Span: rerank (287ms)
+    │   │   └── input: 5 candidates
+    │   │   └── output: top 3 reranked
+    │   └── Span: llm_generate (1885ms)
+    │       └── model: gpt-4o
+    │       └── prompt_tokens: 1234
+    │       └── completion_tokens: 456
+    │       └── cost: $0.0123
+
+implementation: |
+  使用 LangSmith 集成 Tracing（LangChain/LangGraph 自动集成）：
+
+  import os
+  os.environ["LANGCHAIN_TRACING_V2"] = "true"
+  os.environ["LANGCHAIN_API_KEY"] = "ls-..."
+  os.environ["LANGCHAIN_PROJECT"] = "ai-education-os"
+
+  # LangChain/LangGraph 的所有调用自动记录 Trace
+  # 不需要修改业务代码
+
+  # 手动为自定义操作添加 Span（使用 OpenTelemetry）：
+  from opentelemetry import trace
+
+  tracer = trace.get_tracer("my_app")
+
+  with tracer.start_as_current_span("vector_search") as span:
+      span.set_attribute("query", user_query)
+      span.set_attribute("top_k", 5)
+      results = vector_db.search(query_vector, k=5)
+      span.set_attribute("result_count", len(results))
+
+observability_tools:
+  - name: "LangSmith"
+    vendor: "LangChain"
+    strengths: "LangChain/LangGraph 零配置集成，自动追踪所有 LLM 调用"
+    use_case: "LangChain 技术栈的首选"
+  - name: "LangFuse"
+    vendor: "开源 + 商业"
+    strengths: "开源可自部署，支持多框架，成本追踪强"
+    use_case: "需要数据隐私 / 不想用商业 SaaS"
+  - name: "Helicone"
+    vendor: "商业"
+    strengths: "代理模式接入，无需修改代码，成本分析强"
+    use_case: "快速接入，专注成本优化"
+  - name: "OpenTelemetry + Jaeger"
+    vendor: "开源标准"
+    strengths: "行业标准，与传统 APM 系统集成"
+    use_case: "已有 OTel 基础设施的企业"
+
+what_to_trace:
+  must_trace:
+    - "每次 LLM 调用：模型、输入 Prompt、输出、Token 数、延迟、成本"
+    - "每次向量检索：查询、Top-K 结果、相似度分数、耗时"
+    - "每次工具调用：工具名、参数、返回值、耗时"
+    - "错误和异常：错误类型、发生位置、上下文"
+  should_trace:
+    - "Chunking 操作：文档名、Chunk 数量、平均大小"
+    - "Embedding 操作：模型、输入长度、耗时"
+    - "Reranking 操作：候选数量、精排后 Top-K"
+    - "用户反馈：点赞/踩、用户标注的问题"
+
+best_practices:
+  - "每个 Span 记录足够的上下文：不只是'调用了什么'，还要'用什么参数、返回了什么'"
+  - "设置 Sampling Rate：高流量系统不需要记录 100% 的请求，1-10% 采样即可"
+  - "Trace 数据有 TTL：生产日志保留 30 天，成本分析数据保留 90 天"
+  - "区分生产/测试 Trace：用 Project/Environment 标签分离，避免测试数据污染监控"
+
+anti_patterns:
+  - pattern: "Span 只记录函数名，不记录输入输出"
+    consequence: "看到'llm_call'执行了，但不知道用了什么 Prompt，无法调试质量问题"
+  - pattern: "不追踪工具调用"
+    consequence: "Agent 执行失败时不知道是哪个工具调用出了问题"
+  - pattern: "生产环境记录 100% 请求不设采样"
+    consequence: "高并发时 Trace 存储成本爆炸，可能影响业务性能"
+
+relationships:
+  composed_of:
+    - id: "KN-C-000045"
+      note: "Trace 由多个 Span 组成"
+  used_in:
+    - id: "KN-C-000046"
+      note: "LLM Observability 以 Tracing 为核心技术"
+  related_tools:
+    - id: "KN-C-000047"
+      note: "Structured Logging 记录 Trace 中的结构化事件数据"
+
+interview_points:
+  - "Tracing 解决了 LLM 系统什么问题？不做 Tracing 会有什么痛点？"
+  - "Trace 和 Span 的关系是什么？Span 应该包含哪些字段？"
+  - "主流 LLM Tracing 工具有哪些？你会如何选型？"
+  - "Trace 数据的采样率应该如何设置？（L2+ 考察）"
+
+exam_points:
+  - "Tracing = 记录一次任务执行中所有操作的输入/输出/耗时，形成可追溯的链路"
+  - "Trace = 一次完整任务；Span = 其中一个操作步骤"
+  - "必须追踪：LLM 调用 / 向量检索 / 工具调用 / 错误异常"
+  - "主流工具：LangSmith（LangChain 生态）/ LangFuse（开源可部署）"
+
+one_liner: "Tracing = AI 的黑匣子，每一步 LLM 调用/检索/工具调用都有记录，出问题时精确定位原因。"
+difficulty: advanced

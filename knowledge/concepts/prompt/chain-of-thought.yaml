@@ -1,0 +1,94 @@
+id: "KN-P-000003"
+type: Pattern
+name: "Chain-of-Thought (CoT)"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - prompt-engineering
+  - reasoning
+  - pattern
+
+aliases:
+  - "思维链"
+  - "CoT"
+  - "Step-by-Step Reasoning"
+
+summary: "让 LLM 在给出最终答案前先'展示推理过程'，显著提升复杂推理任务的准确率。"
+
+definition: |
+  Chain-of-Thought（思维链，CoT）是一种 Prompting 技术，
+  通过在 Prompt 中要求 LLM 逐步展示推理过程（而非直接给出答案），
+  来提升复杂推理任务（数学、逻辑、多步骤问题）的准确率。
+  核心机制：中间推理步骤占用 Context，引导模型沿正确路径思考。
+
+why: |
+  LLM 直接回答复杂问题时，容易"跳步"出错。
+  就像人类解数学题，要求"展示解题过程"比直接写答案更不容易出错。
+  CoT 让 LLM 的推理过程"显式化"，每一步都可以检查，
+  错误在中间步骤就被"纠正"，不会传播到最终答案。
+
+mental_model: |
+  CoT = 要求学生"展示解题步骤"
+  - 直接答题（Zero-shot）：学生可能乱猜，错误不可见
+  - 展示步骤（CoT）：步骤清晰，哪步错了一目了然，且步骤本身帮助学生思考清楚
+
+how_it_works: |
+  两种实现方式：
+
+  1. Zero-shot CoT：在 Prompt 末尾加"让我们一步一步思考"
+     User: "一个班有30人，其中60%喜欢数学，这些人中40%同时喜欢语文，
+            喜欢数学但不喜欢语文的有多少人？让我们一步一步思考。"
+
+  2. Few-shot CoT：在示例中展示推理过程
+     示例:
+     Q: 5+3×2=?
+     A: 先算乘法：3×2=6，再算加法：5+6=11。答案是11。
+     现在:
+     Q: 8+4×3=?
+     A: [LLM 跟着示例展示推理过程]
+
+core_principles:
+  - "'让我们一步一步思考'（Let's think step by step）是最简单有效的 CoT 触发词"
+  - "CoT 对复杂推理任务有显著效果，对简单任务收益不明显（还增加 Token 成本）"
+  - "CoT 的中间步骤是可检查的——可以用它做 Evaluation，而不只是看最终答案"
+
+best_practices:
+  - "对数学、逻辑、多步骤决策问题，默认使用 CoT"
+  - "Few-shot CoT 效果优于 Zero-shot CoT（有示例更稳定）"
+  - "可以要求 LLM 最后给出结构化答案：'推理完成后，用JSON格式输出最终结论'"
+  - "Tree-of-Thought（ToT）：CoT 的升级版，让 LLM 探索多条推理路径，选最优"
+
+anti_patterns:
+  - pattern: "对所有任务都用 CoT"
+    consequence: "简单任务浪费 Token，增加延迟和成本，且对质量提升无意义"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000010"
+      note: "CoT 是 Prompt Engineering 的高级技巧"
+    - id: "KN-P-000002"
+      note: "Few-shot CoT 结合了 Few-shot 和 CoT 两种技术"
+  related_concepts:
+    - id: "KN-P-000004"
+      note: "ReAct 是 CoT 在 Agent 场景的扩展（Reasoning + Acting）"
+
+interview_points:
+  - "CoT 的原理是什么？为什么能提升推理准确率？"
+  - "Zero-shot CoT 和 Few-shot CoT 的区别？"
+  - "什么类型的任务适合用 CoT？什么时候不适合？"
+  - "Tree-of-Thought 是什么？解决了 CoT 的什么问题？"
+
+exam_points:
+  - "CoT 核心：让 LLM 展示推理步骤而非直接给答案，提升复杂推理准确率"
+  - "Zero-shot CoT 触发词：'让我们一步一步思考 / Let's think step by step'"
+  - "适用场景：数学、逻辑推理、多步骤决策；不适合：简单分类、信息提取"
+
+one_liner: "CoT = 让 AI 展示解题步骤，推理过程显式化，复杂任务准确率显著提升。"
+difficulty: intermediate
+
+references:
+  - "Chain-of-Thought Prompting 原论文: Wei et al., 2022"
+  - "Zero-shot CoT: Kojima et al., 2022"
+  - "Tree of Thoughts: Yao et al., 2023"

@@ -1,0 +1,210 @@
+{
+  "book_title": "日语单词记忆法：从死记硬背到过目不忘（2026版）",
+  "protagonist": "美玲，26岁，中文母语者，备考JLPT N1，单词总是记了忘忘了记",
+  "build": {
+    "mode": "sections",
+    "source_dir": "scripts/book_agent/progress/word_memory/deepseek",
+    "out_json": "frontend/public/data/word-memory-book.json",
+    "frontend_title": "日语单词记忆法：从死记硬背到过目不忘（2026版）",
+    "provider": "deepseek"
+  },
+  "stages": [
+    {
+      "id": 1,
+      "name": "施工图",
+      "provider": "deepseek"
+    },
+    {
+      "id": 2,
+      "name": "草稿前半",
+      "provider": "deepseek"
+    },
+    {
+      "id": 3,
+      "name": "草稿后半",
+      "provider": "deepseek"
+    },
+    {
+      "id": 4,
+      "name": "DS技术审稿",
+      "provider": "deepseek"
+    },
+    {
+      "id": 5,
+      "name": "修订",
+      "provider": "chatgpt"
+    },
+    {
+      "id": 6,
+      "name": "终审",
+      "provider": "chatgpt"
+    }
+  ],
+  "chapters": {
+    "0": {
+      "title": "为什么你背了三遍还是忘？",
+      "part": "序章",
+      "key_topics": [
+        "遗忘曲线",
+        "死记硬背的代价",
+        "大脑记忆机制",
+        "本书使用方法",
+        "美玲的故事"
+      ],
+      "story_hook": "美玲第三次背完同一批单词，第二天还是一个不记得",
+      "mentor": "",
+      "min_words": 3000,
+      "failure_archives": []
+    },
+    "1": {
+      "title": "你的大脑是怎么记单词的",
+      "part": "第一部分：科学基础篇",
+      "key_topics": [
+        "工作记忆与长期记忆",
+        "海马体与记忆编码",
+        "遗忘曲线",
+        "记忆提取练习效应",
+        "情绪与记忆"
+      ],
+      "story_hook": "美玲的单词本被室友发现，上面密密麻麻写了同一个单词40遍",
+      "mentor": "",
+      "min_words": 6000,
+      "failure_archives": []
+    },
+    "2": {
+      "title": "间隔重复法（SRS）— 最科学的记忆系统",
+      "part": "第一部分：科学基础篇",
+      "key_topics": [
+        "SRS原理",
+        "SuperMemo算法",
+        "Anki使用方法",
+        "复习间隔设计",
+        "首次学习策略"
+      ],
+      "story_hook": "美玲第一次打开Anki，完全不知道那些数字意味着什么",
+      "mentor": "",
+      "min_words": 7000,
+      "failure_archives": []
+    },
+    "3": {
+      "title": "联想记忆法 — 让单词有画面感",
+      "part": "第二部分：核心方法篇",
+      "key_topics": [
+        "关键词法",
+        "谐音联想",
+        "意象链接",
+        "夸张画面",
+        "中日汉字联想"
+      ],
+      "story_hook": "美玲用「缘」记「縁（えん）」，用「元旦」记「元旦（がんたん）」，突然开窍",
+      "mentor": "",
+      "min_words": 7000,
+      "failure_archives": []
+    },
+    "4": {
+      "title": "汉字优势法 — 中文母语者的独家武器",
+      "part": "第二部分：核心方法篇",
+      "key_topics": [
+        "汉语借词（漢語）",
+        "训读与音读规律",
+        "中日同形异义词陷阱",
+        "部首推导字义",
+        "音读规律对应表"
+      ],
+      "story_hook": "美玲的日本朋友说「你会中文，背单词应该比我们快两倍」，美玲第一次意识到这个优势",
+      "mentor": "",
+      "min_words": 7000,
+      "failure_archives": []
+    },
+    "5": {
+      "title": "语境记忆法 — 在真实句子里学单词",
+      "part": "第二部分：核心方法篇",
+      "key_topics": [
+        "例句记忆 vs 孤立记忆",
+        "搭配词学习（コロケーション）",
+        "语境猜词技巧",
+        "影视原声输入",
+        "精读 vs 泛读"
+      ],
+      "story_hook": "美玲在日剧里听到了一个陌生单词，查完以后发现自己记了整整一年",
+      "mentor": "",
+      "min_words": 7000,
+      "failure_archives": []
+    },
+    "6": {
+      "title": "记忆宫殿法 — 一次记住1000个单词",
+      "part": "第三部分：进阶方法篇",
+      "key_topics": [
+        "记忆宫殿原理",
+        "位置法（Method of Loci）",
+        "建立你的第一座记忆宫殿",
+        "日语单词如何放入宫殿",
+        "日本场景宫殿"
+      ],
+      "story_hook": "美玲的记忆冠军朋友用「家的每个角落」记住了N1全部2000个单词",
+      "mentor": "",
+      "min_words": 7000,
+      "failure_archives": []
+    },
+    "7": {
+      "title": "音声记忆法 — 用耳朵烧录单词",
+      "part": "第三部分：进阶方法篇",
+      "key_topics": [
+        "影子跟读法",
+        "音调（アクセント）记忆",
+        "日文歌曲学习法",
+        "听写练习",
+        "语音反复暴露"
+      ],
+      "story_hook": "美玲发现自己只要听过歌词里的单词，就很难忘记",
+      "mentor": "",
+      "min_words": 6000,
+      "failure_archives": []
+    },
+    "8": {
+      "title": "输出驱动法 — 用才是最好的记",
+      "part": "第三部分：进阶方法篇",
+      "key_topics": [
+        "主动回忆 vs 被动复习",
+        "语言交换（タンデム）",
+        "写作输出技巧",
+        "错误纠正的记忆效果",
+        "日记法"
+      ],
+      "story_hook": "美玲第一次和日本人对话，脑子里有单词却说不出口",
+      "mentor": "",
+      "min_words": 6000,
+      "failure_archives": []
+    },
+    "9": {
+      "title": "整合系统：你的个人单词战略",
+      "part": "第四部分：系统构建篇",
+      "key_topics": [
+        "按词频优先级排序",
+        "JLPT各级词汇攻略",
+        "每日学习计划",
+        "单词笔记本设计",
+        "复习vs新学的比例"
+      ],
+      "story_hook": "美玲把学过的几种方法混在一起，却发现每天不知道该做什么",
+      "mentor": "",
+      "min_words": 7000,
+      "failure_archives": []
+    },
+    "10": {
+      "title": "30天N1单词冲刺计划",
+      "part": "第四部分：系统构建篇",
+      "key_topics": [
+        "30天每日计划表",
+        "词汇量自测方法",
+        "备考期间记忆策略",
+        "考试前一周复习节奏",
+        "保持状态的心理技巧"
+      ],
+      "story_hook": "距离美玲的N1考试还有30天，她的单词本上还有1800个单词没有掌握",
+      "mentor": "",
+      "min_words": 6000,
+      "failure_archives": []
+    }
+  }
+}

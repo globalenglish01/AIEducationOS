@@ -1,0 +1,149 @@
+id: "KN-C-000027"
+type: Pattern
+name: "Checkpoint & Resume（检查点与断点续跑）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - workflow
+  - reliability
+  - checkpoint
+  - pattern
+
+aliases:
+  - "检查点"
+  - "断点续跑"
+  - "Checkpointing"
+
+summary: "在 Agent 执行过程中定期持久化状态，任务中断后从最近检查点恢复——生产级 Agent 的可靠性基础。"
+
+definition: |
+  Checkpoint（检查点）是将 Agent 当前执行状态持久化到外部存储（DB/文件）的操作。
+  Resume（断点续跑）是在任务因任何原因中断后，从最近的 Checkpoint 恢复继续执行，
+  而不是从头重新开始。
+  Checkpoint + Resume 是生产级 Agent 系统不可缺少的可靠性机制，
+  等同于游戏中的"存档"功能。
+
+why: |
+  Agent 任务通常耗时长（分钟级）、调用次数多（数十次 LLM 调用）：
+  如果没有 Checkpoint：
+  - 服务器重启 → 任务从头来
+  - 网络中断 → 任务从头来
+  - 某一步工具调用失败 → 任务从头来
+  - 每次重试都付出完整的 Token 费用
+
+  有 Checkpoint 后：
+  - 任何中断后从最近 Checkpoint 恢复，已完成的步骤不重复
+  - Token 费用只付"剩余步骤"的部分
+  - 支持 Human-in-the-Loop：暂停等待人工确认，确认后继续
+
+mental_model: |
+  Checkpoint = 游戏存档
+  - 没有存档：通关一半断电，从头开始
+  - 有存档：打完 Boss 存档，下次从这里继续，不用重打前面的关卡
+
+  生产 Agent 场景：
+  - 任务：分析 100 份文档，生成报告（预计 30 分钟，100 次 LLM 调用）
+  - 无 Checkpoint：第 80 份处理到一半崩溃 → 重来 30 分钟，再付 80 份的费用
+  - 有 Checkpoint：从第 80 份继续，只需 5 分钟，只付 20 份的费用
+
+how_it_works: |
+  LangGraph Checkpoint 工作原理：
+
+  from langgraph.checkpoint.sqlite import SqliteSaver
+  from langgraph.graph import StateGraph
+
+  # 1. 创建 Checkpointer（持久化存储）
+  checkpointer = SqliteSaver.from_conn_string("agent_state.db")
+
+  # 2. 编译图时注入 Checkpointer
+  app = graph.compile(checkpointer=checkpointer)
+
+  # 3. 每次 invoke 使用固定 thread_id（任务的唯一标识）
+  config = {"configurable": {"thread_id": "report-task-001"}}
+
+  # 4. 正常运行（每个 Node 执行后自动保存 Checkpoint）
+  try:
+      result = app.invoke(initial_state, config)
+  except Exception as e:
+      print(f"任务中断：{e}")
+
+  # 5. 中断后恢复（用同一个 thread_id 重新调用）
+  # LangGraph 自动检测到存在 Checkpoint，从断点继续
+  result = app.invoke(None, config)
+  # None 表示"不是新任务，从 Checkpoint 继续"
+
+checkpoint_storage_options:
+  - name: "MemorySaver"
+    storage: "内存"
+    persistence: "进程重启后丢失"
+    use_case: "开发/测试/单次短任务"
+  - name: "SqliteSaver"
+    storage: "SQLite 文件"
+    persistence: "持久化，单机"
+    use_case: "单机生产，并发量低"
+  - name: "PostgresSaver"
+    storage: "PostgreSQL"
+    persistence: "持久化，分布式"
+    use_case: "生产，多实例部署，高并发"
+  - name: "RedisSaver"
+    storage: "Redis"
+    persistence: "持久化（需配置 AOF）"
+    use_case: "高频短任务，低延迟 Checkpoint"
+
+checkpoint_data_structure: |
+  每个 Checkpoint 包含：
+  - thread_id：任务唯一标识
+  - checkpoint_id：本次 Checkpoint 的唯一 ID
+  - state：当前完整的 AgentState（所有字段的快照）
+  - metadata：执行到哪个节点、时间戳、版本信息
+  - next：下一个待执行的节点列表
+
+thread_id_design: |
+  thread_id 的设计非常重要：
+  - 每个独立任务一个 thread_id
+  - 格式建议：{任务类型}-{业务ID}-{时间戳}
+    例：report-order-12345-20260619
+  - 多用户系统必须包含 user_id，防止不同用户的任务互相干扰
+    例：user-{user_id}-task-{task_id}
+  - 不同租户必须隔离（Namespace + tenant_id）
+
+best_practices:
+  - "生产环境必须使用持久化 Checkpointer（Sqlite/Postgres），不用 MemorySaver"
+  - "thread_id 包含足够的上下文信息，便于运维排查"
+  - "定期清理过期 Checkpoint，防止存储无限增长（设置 TTL 或定时清理任务）"
+  - "Checkpoint 数据可用于 Audit Log：追踪 Agent 在每个节点的决策记录"
+
+anti_patterns:
+  - pattern: "生产使用 MemorySaver"
+    consequence: "服务重启后所有任务状态丢失，必须从头重试，等同于无 Checkpoint"
+  - pattern: "多用户共用同一个 thread_id 前缀"
+    consequence: "用户 A 的任务状态被用户 B 的 Resume 操作恢复，严重的数据隔离问题"
+  - pattern: "State 存储不可序列化的 Python 对象（函数、文件句柄）"
+    consequence: "Checkpoint 序列化失败，任务无法保存状态"
+
+relationships:
+  implemented_by:
+    - id: "KN-C-000026"
+      note: "LangGraph Checkpointer 是 Checkpoint 的具体实现"
+  enables:
+    - id: "KN-C-000028"
+      note: "Interrupt 依赖 Checkpoint 实现暂停后恢复"
+    - id: "KN-C-000024"
+      note: "HITL 的'暂停等待审批'需要 Checkpoint 保存暂停时的状态"
+
+interview_points:
+  - "为什么生产级 Agent 必须有 Checkpoint？不做会有什么后果？"
+  - "LangGraph 的 Checkpoint 和 Resume 如何工作？thread_id 的作用是什么？"
+  - "Checkpoint 存储方案有哪些？生产环境应该用哪个？"
+  - "如何设计 thread_id 来支持多用户、多租户场景？（L3+ 考察）"
+
+exam_points:
+  - "Checkpoint = 持久化 Agent 执行状态，支持断点续跑"
+  - "Resume：用同一个 thread_id 重新 invoke，LangGraph 自动从最近 Checkpoint 恢复"
+  - "生产存储：SqliteSaver（单机）/ PostgresSaver（分布式）"
+  - "thread_id 必须唯一标识一个任务，多用户场景必须隔离"
+
+one_liner: "Checkpoint = 游戏存档机制，Agent 中断后从断点继续而不是从头来——生产可靠性的基础。"
+difficulty: advanced

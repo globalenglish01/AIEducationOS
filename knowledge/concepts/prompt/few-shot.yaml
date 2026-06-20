@@ -1,0 +1,93 @@
+id: "KN-P-000002"
+type: Pattern
+name: "Few-shot Prompting"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - prompt-engineering
+  - pattern
+  - in-context-learning
+
+aliases:
+  - "少样本提示"
+  - "Few-shot Learning"
+  - "In-context Learning"
+
+summary: "在 Prompt 中提供少量示例（输入→输出对），让 LLM 通过示例理解期望行为，比文字描述效果好得多。"
+
+definition: |
+  Few-shot Prompting 是在 Prompt 中提供少量（通常2-8个）输入→输出示例，
+  让 LLM 通过示例推断任务模式，并将该模式应用于新输入的技术。
+  与 Zero-shot（不提供示例）相比，Few-shot 显著提升输出的格式一致性和任务准确性，
+  尤其在格式复杂、任务边界模糊的场景下效果突出。
+
+why: |
+  "告诉"不如"展示"——这是 Few-shot 的核心洞见。
+  用文字描述期望格式，LLM 可能理解偏差；
+  直接给出3个示例，LLM 立刻"懂了"。
+  这类似于教学中的"示例教学法"：比任何说明书都更高效。
+
+mental_model: |
+  Few-shot = 新员工入职培训
+  - 纯文字说明（Zero-shot）：员工理解可能有偏差
+  - 3个真实案例（Few-shot）：员工立刻明白"哦原来是这样做的"
+  - 示例越贴近真实任务，效果越好
+
+how_it_works: |
+  结构：
+  System: [任务描述]
+  User:   示例输入1
+  Assistant: 示例输出1
+  User:   示例输入2
+  Assistant: 示例输出2
+  User:   实际输入   ← LLM 基于上面的示例生成这里的输出
+
+  或在单个 User Message 中：
+  示例1: 输入: "xxx" → 输出: "yyy"
+  示例2: 输入: "aaa" → 输出: "bbb"
+  现在处理: 输入: "实际输入"
+
+core_principles:
+  - "示例质量 > 示例数量：3个高质量示例胜过10个低质量示例"
+  - "示例要覆盖边界情况：不只是正面例子，也要包含边界和负面例子"
+  - "示例格式必须和期望输出格式完全一致"
+  - "示例不宜太多（超过8个）：Context Window 占用大，且边际收益递减"
+
+best_practices:
+  - "示例从真实数据中选取，而不是手工编造"
+  - "示例覆盖不同类型的输入，避免都是同类简单案例"
+  - "示例的输出格式要和生产环境期望格式完全一致"
+  - "动态 Few-shot：根据用户输入，从示例库中检索最相似的示例注入（RAG + Few-shot）"
+
+anti_patterns:
+  - pattern: "示例全是简单正面案例，没有边界情况"
+    consequence: "LLM 遇到边界输入时行为不稳定"
+  - pattern: "示例输出格式和实际期望格式不一致"
+    consequence: "LLM 学到了错误的格式，输出不符合要求"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000010"
+      note: "Few-shot 是 Prompt Engineering 的核心技巧"
+  related_concepts:
+    - id: "KN-P-000003"
+      note: "CoT 常与 Few-shot 结合使用（Few-shot CoT）"
+
+interview_points:
+  - "Few-shot 和 Zero-shot 的区别是什么？各自适用什么场景？"
+  - "如何选择 Few-shot 示例？需要注意什么？"
+  - "什么是动态 Few-shot？它解决了什么问题？"
+  - "Few-shot 示例数量越多越好吗？为什么？"
+
+exam_points:
+  - "Few-shot：提供示例让 LLM 理解任务模式；Zero-shot：不提供示例"
+  - "Few-shot 示例质量 > 数量，通常2-8个足够"
+  - "动态 Few-shot：用 RAG 从示例库检索最相关示例，适合示例库大的场景"
+
+one_liner: "给示例比给说明更有效——3个好示例胜过1000字的任务描述。"
+difficulty: beginner
+
+references:
+  - "GPT-3 Few-shot 原论文: Brown et al., 2020"

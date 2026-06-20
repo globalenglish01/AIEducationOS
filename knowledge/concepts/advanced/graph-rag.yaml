@@ -1,0 +1,155 @@
+id: "KN-C-000050"
+type: Architecture
+name: "GraphRAG"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L3-L4"
+tags:
+  - advanced
+  - rag
+  - knowledge-graph
+  - architecture
+
+aliases:
+  - "Graph-based RAG"
+  - "知识图谱 RAG"
+  - "Microsoft GraphRAG"
+
+summary: "将知识图谱与向量检索结合，通过实体关系网络增强 RAG 的推理能力——解决跨文档推理和全局理解问题。"
+
+definition: |
+  GraphRAG 是 Microsoft 2024 年提出的 RAG 增强架构，
+  在传统向量检索的基础上，引入知识图谱（Knowledge Graph）：
+  - 离线阶段：从文档中提取实体（Entity）和关系（Relation），构建知识图谱
+  - 检索阶段：结合向量相似度检索和图遍历，获取关联知识
+  - 生成阶段：基于更丰富的结构化知识生成答案
+  GraphRAG 显著提升了需要"跨文档推理"和"全局理解"的问题的答案质量。
+
+why: |
+  传统 RAG（向量检索）的局限：
+  1. 孤立片段：每个 Chunk 独立检索，无法理解跨文档的实体关系
+     例："张三的老板的老板是谁？"—— 需要关联多个文档中的人物关系
+  2. 缺乏全局视角：只能找到与 Query 直接相关的片段，无法回答
+     "这个项目涉及哪些主要风险？"这类需要综合多文档的问题
+  3. 隐性关系遗漏：两个文档都没有直接提到某个关系，但通过推导可以得出
+
+  GraphRAG 解决：
+  - 实体关系图使跨文档推理成为可能
+  - Community Summary（社区摘要）提供全局视角
+  - 图遍历补充向量检索漏掉的关联知识
+
+mental_model: |
+  普通 RAG = 图书馆按主题检索
+  - 搜索"机器学习"→ 找到相关的书/章节
+  - 无法回答："哪些研究者在机器学习和量子计算都有贡献？"
+
+  GraphRAG = 图书馆 + 学术关系图谱
+  - 不只找相关文档，还建立了"人物-机构-领域-论文"的关系网络
+  - 可以沿关系边遍历：A 认识 B，B 在 C 机构，C 机构研究 D 领域
+  - 能回答复杂的跨实体推理问题
+
+how_it_works: |
+  GraphRAG 两阶段架构：
+
+  === 离线索引阶段（构建知识图谱）===
+
+  Step 1: 实体和关系提取
+  # 用 LLM 从每个文档块提取实体和关系
+  extract_prompt = """
+  从以下文本中提取：
+  1. 实体（人物、组织、产品、概念）
+  2. 实体之间的关系
+
+  文本：{chunk}
+
+  输出 JSON：
+  {
+    "entities": [{"name": "...", "type": "Person/Org/Concept", "description": "..."}],
+    "relations": [{"source": "...", "target": "...", "relation": "..."}]
+  }
+  """
+
+  Step 2: 构建知识图谱
+  # 将所有实体和关系存入图数据库（Neo4j）或内存图（NetworkX）
+  graph.add_node("张三", type="Person", description="AI 工程师")
+  graph.add_node("字节跳动", type="Organization")
+  graph.add_edge("张三", "字节跳动", relation="就职于")
+
+  Step 3: 社区检测和摘要（GraphRAG 特有）
+  # 用 Leiden 算法对图进行社区划分
+  # 为每个社区生成全局摘要（描述该社区的主题和主要实体）
+  community_summary = llm.summarize(community_entities_and_relations)
+
+  === 在线检索阶段 ===
+
+  Local Search（局部搜索）：适合具体问题
+  1. 向量检索相关实体
+  2. 从这些实体出发，在图上遍历 N 跳，获取关联实体和关系
+  3. 将图上下文 + 向量上下文组合注入 Prompt
+
+  Global Search（全局搜索）：适合综合性问题
+  1. 遍历所有社区摘要
+  2. 用 Map-Reduce：每个社区摘要独立生成部分答案
+  3. Reduce：将所有部分答案综合成最终答案
+
+comparison_with_naive_rag:
+  naive_rag:
+    strength: "精确的事实检索，低延迟，低成本"
+    weakness: "无法跨文档推理，缺乏全局视角"
+    best_for: "精确查找，FAQ，文档问答"
+  graph_rag:
+    strength: "跨文档推理，全局理解，复杂关系查询"
+    weakness: "构建成本高，索引时间长，查询延迟高，适合静态知识库"
+    best_for: "知识密集型推理，复杂实体关系分析，企业知识管理"
+
+use_cases:
+  - "企业知识图谱：'谁参与了项目 X 的所有子任务，并与哪些外部合作方有联系？'"
+  - "科研文献分析：'哪些研究者在领域 A 和领域 B 都有贡献，他们之间有什么合作？'"
+  - "法律文档分析：'合同 A 中的条款 3 与合同 B 中的条款 7 是否存在冲突？'"
+  - "企业安全分析：'攻击者从入口点 X 出发，经过哪些跳可以到达敏感资产 Y？'"
+
+implementation_options:
+  - name: "Microsoft GraphRAG（官方实现）"
+    repo: "github.com/microsoft/graphrag"
+    pros: "完整实现，包含社区检测和 Global Search"
+    cons: "索引成本高（需要大量 LLM 调用提取实体）"
+  - name: "LlamaIndex Property Graph"
+    pros: "更轻量，与 LlamaIndex 生态集成"
+    cons: "功能不如官方实现完整"
+  - name: "Neo4j + LangChain"
+    pros: "生产级图数据库，支持复杂图查询"
+    cons: "需要自行实现图谱构建流程"
+
+cost_considerations: |
+  GraphRAG 的成本显著高于普通 RAG：
+  - 索引成本：每个文档块需要 LLM 调用提取实体（相比普通 RAG 的 Embedding Only）
+  - 存储成本：图数据库 + 原始向量库
+  - 查询成本：Global Search 需要遍历所有社区摘要，LLM 调用次数多
+
+  建议：
+  - 知识库频繁变化的场景：不适合（重建图谱成本高）
+  - 知识库相对稳定，问题复杂度高：适合
+
+relationships:
+  extends:
+    - id: "KN-C-000033"
+      note: "GraphRAG 是传统 RAG 的架构升级，解决其跨文档推理局限"
+  uses:
+    - id: "KN-C-000030"
+      note: "GraphRAG 同样使用 Embedding 进行初始实体检索"
+
+interview_points:
+  - "GraphRAG 解决了传统 RAG 的什么问题？"
+  - "GraphRAG 的两种检索模式（Local/Global Search）分别适合什么场景？"
+  - "GraphRAG 相比普通 RAG 的成本有多大差异？什么场景下值得用？"
+  - "知识图谱中的'社区摘要'是什么？它的作用是什么？"
+
+exam_points:
+  - "GraphRAG = 向量检索 + 知识图谱，解决跨文档推理和全局理解问题"
+  - "Local Search：从相关实体出发图遍历（具体问题）"
+  - "Global Search：Map-Reduce 遍历社区摘要（综合问题）"
+  - "代价：索引成本高，适合静态知识库 + 复杂推理场景"
+
+one_liner: "GraphRAG = RAG + 知识图谱，通过实体关系网络让 AI 能跨文档推理——回答'A 的老板的合作方是谁'这类复杂问题。"
+difficulty: expert

@@ -1,0 +1,151 @@
+id: "KN-C-000010"
+type: Concept
+name: "Prompt"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - prompt-engineering
+  - foundation
+  - llm-interface
+
+aliases:
+  - "提示词"
+  - "Prompt Engineering"
+  - "指令"
+
+summary: "发送给 LLM 的输入文本，是人与 AI 协作的接口——写好 Prompt 是 AI Native 工程的起点。"
+
+definition: |
+  Prompt 是发送给 LLM 的输入文本，包含任务指令、上下文信息、示例和约束条件。
+  Prompt Engineering 是系统性地设计、测试和迭代 Prompt，
+  以稳定地引导 LLM 产生期望输出的工程实践。
+  在 AI 系统中，Prompt 是业务逻辑与 LLM 能力之间的桥梁。
+
+why: |
+  LLM 的能力是固定的（参数已训练好），但同一个模型面对不同的 Prompt，
+  输出质量可以相差 10 倍以上。
+  Prompt 是 AI Native Engineer 能直接控制的最重要变量：
+  不需要改模型，不需要训练，只需要改 Prompt，就能大幅改变输出质量。
+  这也是为什么"Prompt 是代码"——它必须被认真对待、版本控制、测试。
+
+mental_model: |
+  Prompt = 给实习生的工作说明书
+  - 你怎么写说明书，实习生就怎么做
+  - 说明书含糊 → 结果含糊
+  - 说明书里有示例 → 结果更符合期望
+  - 说明书规定了格式 → 输出格式稳定
+  - 说明书越清晰，实习生越能发挥
+
+  进阶类比：
+  Prompt = 函数签名（对 LLM 来说）
+  - System Prompt = 函数的文档字符串（定义行为边界）
+  - User Message = 函数调用（传入具体参数）
+  - LLM 输出 = 函数返回值
+
+how_it_works: |
+  完整的 Prompt 通常由三部分组成：
+  ┌─────────────────────────────────────────────┐
+  │ System Prompt（系统提示）                     │
+  │ - 定义 AI 的角色和行为边界                    │
+  │ - 例："你是一位严谨的代码审查专家..."          │
+  ├─────────────────────────────────────────────┤
+  │ Few-shot Examples（少样本示例）[可选]          │
+  │ - 用示例展示期望的输入→输出格式                │
+  ├─────────────────────────────────────────────┤
+  │ User Message（用户输入）                      │
+  │ - 当前具体的任务或问题                        │
+  │ - 可注入动态内容（RAG 结果、变量等）           │
+  └─────────────────────────────────────────────┘
+
+core_principles:
+  - "Prompt 是代码：必须版本控制、Code Review、自动测试，不允许随意修改生产 Prompt"
+  - "明确优于模糊：具体的指令、格式要求、示例，比泛泛的描述效果好 10 倍"
+  - "先 Why 后 What：告诉 LLM 为什么，比告诉它做什么更有效"
+  - "System Prompt 与 User Input 必须严格隔离（防 Prompt Injection）"
+
+examples:
+  - scenario: "结构化输出"
+    description: |
+      System: 你是数据提取专家，永远以 JSON 格式输出，不输出任何其他内容。
+      User: 从以下文本中提取姓名和邮箱：'联系张三，邮箱 zhang@example.com'
+      Output: {"name": "张三", "email": "zhang@example.com"}
+  - scenario: "Few-shot 引导"
+    description: |
+      System: 将用户输入分类为 positive/negative/neutral
+      示例1 - Input: "产品很好用" → Output: positive
+      示例2 - Input: "还行吧" → Output: neutral
+      User: "这个东西烂透了" → Output: negative
+
+counter_examples:
+  - "不要把 Prompt 硬编码在业务代码里，应存入 prompts/ 目录统一管理"
+  - "不要在 Prompt 里堆很多要求而不给示例——示例比说明有效得多"
+  - "不要在一个 Prompt 里同时让 LLM 做多件事——拆分任务，每个 Prompt 只做一件事"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "Prompt 是与 LLM 交互的方式，先理解 LLM"
+    - id: "KN-C-000003"
+      note: "Prompt 占用 Context Window，需要精心规划空间"
+  used_by:
+    - id: "KN-C-000020"
+      note: "Agent 的每一步决策都通过 Prompt 驱动"
+    - id: "KN-C-000030"
+      note: "RAG 将检索结果注入 Prompt"
+  related_concepts:
+    - id: "KN-P-000001"
+      note: "System Prompt 是 Prompt 的核心组成部分"
+    - id: "KN-P-000002"
+      note: "Few-shot 是提升 Prompt 效果的核心技巧"
+    - id: "KN-P-000003"
+      note: "CoT 是通过 Prompt 引导推理的重要模式"
+
+common_misconceptions:
+  - misconception: "Prompt 写得越长越好"
+    correction: "Prompt 要精准，不要冗长。无关信息会干扰 LLM，降低输出质量。每个 Token 都有成本。"
+  - misconception: "Prompt 调好了就永远好"
+    correction: "模型更新、业务需求变化都会影响 Prompt 效果。必须建立持续的 Evaluation 体系监控 Prompt 质量。"
+  - misconception: "Prompt Engineering 不需要测试"
+    correction: "Prompt 改动必须经过 Evaluation（回归测试），就像代码改动要跑单元测试一样。"
+  - misconception: "好的 Prompt 能解决一切问题"
+    correction: "Prompt 是最易变、影响最直接的变量，但系统质量还取决于 RAG、Evaluation、模型选择等。Prompt 只占整体质量的约 30%。"
+
+best_practices:
+  - "所有 Prompt 存入 prompts/ 目录，用 Git 版本控制，像管理代码一样管理"
+  - "Prompt 修改前后必须跑 Evaluation，确认质量没有退化"
+  - "System Prompt 和 User Input 严格分离（防止 Prompt Injection）"
+  - "给出输出格式示例（Few-shot），比文字描述格式更有效"
+  - "在 System Prompt 中明确'不要做什么'，比只说'要做什么'效果更好"
+
+anti_patterns:
+  - pattern: "Prompt 硬编码在 Python 代码里的字符串中"
+    consequence: "无法版本控制，无法 A/B 测试，修改风险高，难以跨团队协作"
+  - pattern: "一个 Prompt 让 LLM 同时做5件事"
+    consequence: "LLM 注意力分散，每件事都做得差，不如拆成5个独立 Prompt 串联"
+  - pattern: "不测试 Prompt 就上生产"
+    consequence: "质量问题在用户处暴露，无法量化影响范围，也无法快速定位原因"
+
+interview_points:
+  - "Prompt Engineering 为什么重要？它能在多大程度上影响 LLM 输出质量？"
+  - "System Prompt 和 User Message 的区别是什么？为什么要分开？"
+  - "Few-shot 是什么？相比 Zero-shot 有什么优势？"
+  - "为什么说'Prompt 是代码'？在工程实践中意味着什么？"
+  - "Prompt Injection 是什么？如何防御？（L2+ 考察）"
+  - "如何管理生产环境的 Prompt 版本？如何测试 Prompt 修改的影响？（L2+ 考察）"
+
+exam_points:
+  - "Prompt 三部分：System Prompt + Few-shot Examples + User Message"
+  - "Few-shot：提供输入→输出示例，帮助 LLM 理解期望格式和行为"
+  - "Zero-shot：不提供示例，直接给任务描述"
+  - "Prompt 版本控制：存入 prompts/ 目录，用 Git 管理，修改前后跑 Evaluation"
+  - "System Prompt 作用：定义 AI 角色、行为边界、输出格式约束"
+
+one_liner: "Prompt 是人与 LLM 的接口，写好它就是在'编程'——必须版本控制、测试、持续迭代。"
+difficulty: beginner
+
+references:
+  - "OpenAI Prompt Engineering 指南: https://platform.openai.com/docs/guides/prompt-engineering"
+  - "Anthropic Prompt Engineering: https://docs.anthropic.com/en/docs/build-with-claude/prompt-engineering/overview"
+  - "DSPY: Prompt 自动化优化框架: https://github.com/stanfordnlp/dspy"

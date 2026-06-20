@@ -1,0 +1,138 @@
+id: "KN-C-000035"
+type: Pattern
+name: "Hybrid Search（混合搜索）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - rag
+  - search
+  - retrieval-optimization
+
+aliases:
+  - "混合搜索"
+  - "向量搜索 + BM25"
+  - "Dense + Sparse Retrieval"
+
+summary: "将向量语义搜索（Dense）与关键词精确搜索（BM25/Sparse）结合，用 RRF 融合排序——覆盖语义和关键词两种检索范式，召回率显著提升。"
+
+definition: |
+  Hybrid Search 是将两种互补的检索方法结合的 RAG 优化策略：
+  - Dense（稠密）检索：向量相似度搜索，擅长语义理解和同义词处理
+  - Sparse（稀疏）检索：BM25 关键词搜索，擅长精确词汇匹配（术语、数字、专有名词）
+  两路检索结果通过 RRF（Reciprocal Rank Fusion）算法融合，
+  综合两种方法的优势，比任何单一方法都有更高的召回率和准确率。
+
+why: |
+  向量搜索的局限（没有 Hybrid Search 时）：
+  - 搜"GPT-4-turbo 的最大 Context Window 是多少"→ 向量搜索返回泛泛的"Context Window"文档
+  - 搜"Error code: 429"→ 向量搜索找不到，因为 "429" 不是语义概念
+  - 搜专有名词、产品型号、错误代码时，向量相似度不可靠
+
+  BM25 的局限（没有 Hybrid Search 时）：
+  - 搜"如何减肥"找不到"体重管理方法"（词汇不匹配但语义相同）
+  - 无法理解同义词、近义词
+
+  Hybrid Search 两者互补：
+  - 专有名词、错误代码：BM25 精确找到
+  - 语义查询、同义词：向量搜索找到
+  - 融合后覆盖两种场景
+
+mental_model: |
+  Hybrid Search = 图书馆双轨检索
+  - 向量检索 = 按"主题内容"找书（语义搜索）
+  - BM25 检索 = 按"书名关键词"找书（精确匹配）
+  - 融合 = 两份书单合并去重，同时出现在两份里的排名更靠前
+
+  或：Hybrid Search = 搜索引擎的工作方式
+  Google 从来不只用向量搜索，也不只用关键词——两者结合才有现在的效果
+
+how_it_works: |
+  RRF（Reciprocal Rank Fusion）融合算法：
+
+  # 向量搜索结果（已按相似度排序）
+  vector_results = [doc_A(rank=1), doc_C(rank=2), doc_D(rank=3), ...]
+
+  # BM25 搜索结果（已按词频分数排序）
+  bm25_results  = [doc_B(rank=1), doc_A(rank=2), doc_E(rank=3), ...]
+
+  # RRF 融合：每个文档的分数 = sum(1 / (k + rank_i))，k 通常取 60
+  def rrf_score(ranks: list, k=60) -> float:
+      return sum(1 / (k + r) for r in ranks)
+
+  # doc_A 在两路检索中都出现（排名 1 和 2），RRF 分数最高
+  # doc_B 只在 BM25 出现（排名 1），RRF 分数中等
+  # doc_C 只在向量搜索出现（排名 2），RRF 分数中等
+
+  # 取 RRF 分数最高的 Top-K 注入 Prompt
+
+  # Weaviate 内置 Hybrid Search（alpha 控制两路权重）：
+  results = collection.query.hybrid(
+      query="GPT-4 最大 Context Window",
+      alpha=0.5,      # 0=纯 BM25，1=纯向量，0.5=均衡
+      limit=20
+  )
+
+key_parameters:
+  alpha:
+    description: "控制向量检索和关键词检索的权重比例"
+    range: "0.0 到 1.0"
+    guidance: |
+      - alpha=0：纯 BM25 关键词搜索
+      - alpha=1：纯向量语义搜索
+      - alpha=0.5：均衡混合（通用起点）
+      - alpha=0.3：偏向关键词（专有名词、代码、错误码场景）
+      - alpha=0.7：偏向语义（自然语言问答场景）
+  k_rrf:
+    description: "RRF 公式中的平滑参数，通常固定为 60"
+
+support_by_vector_dbs:
+  - db: "Weaviate"
+    support: "内置 Hybrid Search，alpha 参数控制权重"
+  - db: "Qdrant"
+    support: "支持 Sparse Vector + Dense Vector 融合"
+  - db: "Elasticsearch"
+    support: "原生支持 BM25 + kNN 混合"
+  - db: "Chroma"
+    support: "不内置，需要手动实现两路检索后融合"
+  - db: "pgvector"
+    support: "需配合 PostgreSQL 全文搜索（tsvector）手动实现"
+
+best_practices:
+  - "以 alpha=0.5 为起点，根据业务场景和 Evaluation 结果调整"
+  - "专有名词、技术文档场景（API 文档、错误代码）：降低 alpha（更偏向 BM25）"
+  - "自然语言问答、FAQ 场景：提高 alpha（更偏向向量）"
+  - "Hybrid Search 后接 Reranking 效果最佳：Hybrid 提升召回，Reranker 提升精度"
+
+anti_patterns:
+  - pattern: "只用向量搜索，遇到关键词场景报告'找不到相关内容'"
+    consequence: "用户搜索精确术语、错误代码时体验差，产品质量不符合预期"
+  - pattern: "alpha 固定不调，不根据场景优化"
+    consequence: "通用配置在特定场景（如技术文档、代码库）效果次优"
+
+relationships:
+  is_improvement_of:
+    - id: "KN-C-000033"
+      note: "Hybrid Search 是 Advanced RAG 的检索优化策略"
+  complements:
+    - id: "KN-C-000034"
+      note: "Hybrid Search（提升召回）+ Reranking（提升精度）是 Advanced RAG 黄金组合"
+  requires:
+    - id: "KN-C-000031"
+      note: "需要向量数据库支持（Weaviate、Qdrant 等内置混合搜索）"
+
+interview_points:
+  - "Hybrid Search 解决了什么问题？向量搜索单独有什么局限？"
+  - "RRF 算法是什么？如何融合两路检索结果？"
+  - "alpha 参数怎么理解？不同场景下应该如何调整？"
+  - "Hybrid Search + Reranking 的组合有什么优势？"
+
+exam_points:
+  - "Hybrid Search = 向量检索（语义）+ BM25（关键词）+ RRF 融合"
+  - "RRF：在两路检索中都排名靠前的文档，融合后分数最高"
+  - "alpha 参数：0=纯 BM25，1=纯向量，0.5=均衡"
+  - "黄金组合：Hybrid Search（召回率↑）+ Reranker（精度↑）"
+
+one_liner: "Hybrid Search = 语义搜索 + 关键词搜索两路并行，RRF 融合——覆盖两种检索范式，召回率显著提升。"
+difficulty: advanced

@@ -1,0 +1,144 @@
+id: "KN-C-000020"
+type: Concept
+name: "Agent (AI Agent)"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - agent
+  - foundation
+  - architecture
+
+aliases:
+  - "AI Agent"
+  - "智能体"
+  - "自主 Agent"
+
+summary: "能够感知环境、自主决策、调用工具、完成多步骤任务的 AI 系统——区别于单次问答的 LLM 调用。"
+
+definition: |
+  AI Agent 是以 LLM 为核心决策引擎，能够自主规划、调用外部工具、
+  在多步骤执行过程中动态调整策略，最终完成复杂任务的软件系统。
+  关键特征：
+  - 自主性：无需人类在每一步介入，能自主决定下一步行动
+  - 工具调用：能调用搜索、数据库、代码执行等外部工具扩展能力
+  - 状态持久：在多步骤执行过程中维护任务状态
+  - 目标导向：以完成特定目标为终点，而非只回答单个问题
+
+why: |
+  单次 LLM 调用只能处理"单个问题→单个答案"的场景。
+  现实中的复杂任务（代码 Debug、数据分析、多系统集成）需要：
+  搜索信息→分析→执行代码→验证结果→迭代修正……
+  这些需要多步骤、工具调用、中间状态保持的场景，需要 Agent 而不是单次 LLM 调用。
+
+mental_model: |
+  Agent = 能独立完成任务的实习工程师
+  - LLM（单次调用）= 你问我答的顾问：每次只回答一个问题
+  - Agent = 独立承担项目的实习生：理解目标后自主规划→执行→调整→汇报
+
+  三要素：
+  LLM（大脑）+ Tools（手脚）+ Memory（记忆）= Agent
+
+how_it_works: |
+  Agent 的四大核心组件：
+  ┌─────────────────────────────────────────────────────┐
+  │  1. LLM（决策引擎）                                   │
+  │     - 理解任务目标                                    │
+  │     - 决定调用哪个工具、传什么参数                     │
+  │     - 根据工具返回结果调整策略                         │
+  ├─────────────────────────────────────────────────────┤
+  │  2. Tools（工具集）                                   │
+  │     - 搜索工具（web_search）                          │
+  │     - 代码执行（python_repl）                         │
+  │     - 数据库查询、API 调用……                          │
+  ├─────────────────────────────────────────────────────┤
+  │  3. Memory（记忆）                                    │
+  │     - 短期记忆：当前任务的 Context Window              │
+  │     - 长期记忆：向量数据库、持久化状态                  │
+  ├─────────────────────────────────────────────────────┤
+  │  4. Harness / Runtime                                │
+  │     - 管理 Agent 生命周期                             │
+  │     - 任务调度、状态持久化、失败恢复                    │
+  │     - Human-in-the-Loop 控制点                       │
+  └─────────────────────────────────────────────────────┘
+
+  运行机制 = ReAct Loop：
+  接收任务 → Thought → Action（调用工具）→ Observation → Thought → …… → 完成
+
+agent_types:
+  - type: "单 Agent"
+    description: "一个 LLM + 多个工具，适合中等复杂度任务"
+    example: "代码 Debug Agent：接受 bug 描述，自主查代码→分析→提出修复方案"
+  - type: "Multi-Agent"
+    description: "多个专门化 Agent 协作，每个 Agent 专注特定子任务"
+    example: "Researcher Agent 收集信息 → Writer Agent 撰写内容 → Reviewer Agent 审核"
+  - type: "Human-in-the-Loop Agent"
+    description: "在关键决策点暂停，等待人工确认后继续"
+    example: "执行删除操作前暂停，显示'将删除以下文件，确认？'"
+
+core_principles:
+  - "LLM 只负责决策，工具负责执行——不要让 LLM 直接操作系统"
+  - "最小权限原则：Agent 只能访问完成任务所需的最小工具集和数据范围"
+  - "所有 Agent 行为必须可追踪（Tracing），便于调试和审计"
+  - "设置终止条件：max_iterations + timeout，防止无限循环"
+  - "高风险操作必须 Human-in-the-Loop，不允许 Agent 自主执行不可逆操作"
+
+best_practices:
+  - "明确 Agent 的职责边界：一个 Agent 解决一类问题，不要做万能 Agent"
+  - "工具设计遵循最小接口原则：工具参数清晰、返回值结构化"
+  - "Agent 失败后要有恢复机制：Checkpoint + Retry，不要每次失败都从头来"
+  - "在 System Prompt 中明确 Agent 的行为约束和终止条件"
+  - "生产环境的 Agent 必须接入 Observability（LangFuse/Langsmith）"
+
+anti_patterns:
+  - pattern: "给 Agent 过多工具"
+    consequence: "LLM 在选工具时困惑，工具选择准确率下降；每次调用 Token 成本增加"
+  - pattern: "让 Agent 直接执行不可逆操作（删除、发邮件）而不确认"
+    consequence: "错误无法撤销，生产事故风险极高"
+  - pattern: "不设置 max_iterations"
+    consequence: "Agent 陷入死循环，Token 消耗无上限，系统崩溃"
+  - pattern: "单一超级 Agent 负责所有任务"
+    consequence: "System Prompt 过于复杂，LLM 跟随性下降；无法并行；难以调试"
+
+security:
+  - "防止 Agent 读取 .env、.git、~/.ssh 等敏感文件——工具层白名单限制访问路径"
+  - "防止 Agent 通过工具执行任意 shell 命令——代码执行工具必须沙箱隔离"
+  - "防止 Tool Injection：外部数据源的内容不能直接作为工具参数执行"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "Agent 的决策引擎是 LLM"
+    - id: "KN-P-000004"
+      note: "Agent 的运行机制就是 ReAct Loop"
+    - id: "KN-C-000010"
+      note: "Agent 的每步决策由 Prompt 驱动"
+  has_parts:
+    - id: "KN-C-000021"
+      note: "Agent Loop 是 Agent 的运行时循环"
+    - id: "KN-C-000022"
+      note: "Tool Use 是 Agent 扩展能力的机制"
+    - id: "KN-C-000023"
+      note: "Planning 是 Agent 处理复杂任务的策略"
+    - id: "KN-C-000024"
+      note: "Human-in-the-Loop 是 Agent 的安全控制机制"
+
+interview_points:
+  - "Agent 和普通 LLM 调用有什么本质区别？"
+  - "Agent 的四大核心组件是什么？各自负责什么？"
+  - "什么时候应该用 Agent？什么时候用单次 LLM 调用？"
+  - "Multi-Agent 的优势是什么？什么场景适合 Multi-Agent？"
+  - "Agent 的安全风险有哪些？如何防御？（L2+ 考察）"
+  - "如何设计一个可观测的 Agent 系统？（L2+ 考察）"
+  - "Agent 权限设计的最小权限原则怎么落地？（L3+ 考察）"
+
+exam_points:
+  - "Agent 三要素：LLM（大脑）+ Tools（手脚）+ Memory（记忆）"
+  - "Agent 区别于单次 LLM 调用的核心：自主性 + 工具调用 + 状态持久"
+  - "Agent 运行机制 = ReAct Loop（Thought→Action→Observation→循环）"
+  - "必须设置 max_iterations + timeout，防止无限循环"
+  - "安全原则：最小权限；高风险操作必须 Human-in-the-Loop"
+
+one_liner: "Agent = LLM 大脑 + Tools 手脚 + Memory 记忆，能自主完成多步骤复杂任务的 AI 系统。"
+difficulty: intermediate

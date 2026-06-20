@@ -1,0 +1,131 @@
+id: "KN-C-000023"
+type: Concept
+name: "Agent Planning"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - agent
+  - planning
+  - architecture
+
+aliases:
+  - "任务规划"
+  - "Plan-and-Execute"
+  - "Agent 规划"
+
+summary: "Agent 在执行前先分解复杂任务为子任务序列，然后逐步执行——提升复杂任务的完成率和可控性。"
+
+definition: |
+  Agent Planning 是让 LLM 在执行之前先生成任务分解计划（Plan），
+  将复杂目标拆解为有序的子任务列表，然后按计划逐步执行。
+  规划使 Agent 具备了"先想清楚再动手"的能力，
+  减少盲目试错，提升复杂任务的完成率和执行效率。
+
+why: |
+  对于复杂任务（10步以上），纯粹的 ReAct（边想边做）容易：
+  - 走弯路：前期决策失误，后期难以纠正
+  - 遗漏步骤：没有全局视图，容易忘掉某些子任务
+  - 陷入局部最优：当前步骤看似合理，但从全局看不是最优路径
+  Planning 相当于在施工前先画图纸——减少施工中的反复修改。
+
+mental_model: |
+  Planning = 项目经理在开工前制定项目计划
+  - 纯 ReAct（无规划）= 施工队直接开始干，遇到问题再想
+  - Plan + Execute = 先出图纸（Plan），再按图施工（Execute）
+
+  类比：
+  - 目标："开发一个用户管理系统"
+  - Plan 阶段：拆解出10个子任务，确定顺序和依赖
+  - Execute 阶段：按照计划逐一完成，遇到偏差更新计划
+
+planning_strategies:
+  - name: "Plan-and-Execute"
+    description: |
+      最常见的规划模式：
+      Phase 1（Planner）：LLM 生成完整的子任务列表
+      Phase 2（Executor）：逐步执行每个子任务，可以用不同的 Agent 或工具
+      Phase 3（Re-planner）：执行过程中如果遇到意外，更新计划
+    use_when: "任务可以预先分解，子任务之间有清晰的依赖关系"
+
+  - name: "ReAct + Reflection"
+    description: |
+      在 ReAct Loop 中加入定期反思节点（每 N 步检查一次）：
+      - "我在正确的轨道上吗？"
+      - "已完成的步骤有没有遗漏？"
+      - "剩余目标还需要哪些步骤？"
+      Reflection 帮助 Agent 保持方向感，避免走偏太远才发现。
+    use_when: "任务动态性强，难以预先完整规划"
+
+  - name: "树搜索（Tree of Thought）"
+    description: |
+      生成多个备选计划，并行评估每个计划的可行性，选择最优计划执行。
+      适合决策点多、备选路径多的复杂问题。
+    use_when: "高风险决策，需要探索多个方向后选最优"
+
+how_it_works: |
+  Plan-and-Execute 实现示例（Python 伪代码）：
+
+  def run_plan_execute_agent(goal: str):
+      # Phase 1: Planning
+      plan_prompt = f"""
+      目标：{goal}
+      请将目标分解为具体的、可执行的子任务列表。
+      每个子任务用一句话描述，按执行顺序排列。
+      以 JSON 数组格式输出。
+      """
+      plan = llm.chat(plan_prompt)  # 返回子任务列表
+      tasks = json.loads(plan)
+
+      # Phase 2: Execute
+      results = []
+      for i, task in enumerate(tasks):
+          # 执行每个子任务
+          result = execute_subtask(task, context=results)
+          results.append(result)
+
+          # Phase 3: Re-plan（如果遇到意外）
+          if result.status == "FAILED":
+              tasks = replan(goal, tasks, results, i)
+
+      return synthesize(goal, results)
+
+core_principles:
+  - "先规划再执行：复杂任务（超过5步）应该先生成计划，再逐步执行"
+  - "计划可更新：执行过程中遇到意外，必须能更新计划（Re-plan），而不是硬按原计划"
+  - "计划粒度合适：子任务粒度太粗（难以执行）或太细（规划开销大）都不合适"
+  - "保持全局视图：Executor 在执行子任务时，始终能访问整体目标和已完成步骤"
+
+anti_patterns:
+  - pattern: "计划写死，无法更新"
+    consequence: "执行中遇到意外（工具失败、结果出乎意料）时无法调整，任务失败"
+  - pattern: "规划过于详细（微观管理）"
+    consequence: "规划本身消耗大量 Token 和时间，且在复杂环境中很快过时"
+  - pattern: "Executor 看不到全局目标"
+    consequence: "执行子任务时脱离上下文，可能完成了子任务但偏离了整体目标"
+
+relationships:
+  is_part_of:
+    - id: "KN-C-000020"
+      note: "Planning 是 Agent 处理复杂任务的核心策略"
+  extends:
+    - id: "KN-P-000004"
+      note: "Planning 是 ReAct 的升级版，增加了预先规划的能力"
+  implemented_by:
+    - id: "KN-C-000025"
+      note: "LangGraph 通过多节点图实现 Plan-and-Execute 模式"
+
+interview_points:
+  - "为什么复杂任务需要 Planning？纯 ReAct 有什么局限？"
+  - "Plan-and-Execute 和 ReAct 的区别？各自适用什么场景？"
+  - "如果执行过程中计划失效了怎么办？Re-planning 如何实现？"
+  - "如何评估一个 Planning 系统的质量？（L2+ 考察）"
+
+exam_points:
+  - "Planning = 先分解任务再执行，减少盲目试错"
+  - "Plan-and-Execute：Planner 生成计划 → Executor 执行 → Re-planner 动态调整"
+  - "计划必须可更新（Re-plan）：遇到意外时调整，而不是硬按原计划"
+
+one_liner: "Planning = 先画图纸再施工，让 Agent 处理10步以上复杂任务时不走弯路。"
+difficulty: advanced

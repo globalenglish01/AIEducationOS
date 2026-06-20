@@ -1,0 +1,131 @@
+id: "KN-C-000034"
+type: Pattern
+name: "Reranking（重排序）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - rag
+  - reranking
+  - retrieval-optimization
+
+aliases:
+  - "重排序"
+  - "Cross-Encoder Reranking"
+  - "二阶段检索"
+
+summary: "在向量检索后，用精度更高的交叉编码器对候选结果重新精排，将最相关的 Chunk 筛选到最终注入 Prompt 的位置。"
+
+definition: |
+  Reranking 是 RAG 检索流程中的第二阶段：
+  Phase 1（粗检索）：向量数据库快速检索 Top-N 候选（N=20-100），速度快，精度一般
+  Phase 2（精排）：Reranker 模型逐一计算每个候选与 Query 的相关性分数，重新排序取 Top-K（K=3-10）
+  Reranker 模型（交叉编码器）同时看 Query 和 Document，计算精准相关度，
+  比只看单个向量的双编码器精度高得多，代价是速度慢（无法用于大规模初筛）。
+
+why: |
+  向量检索（双编码器）的局限：
+  - Query 和 Document 分别独立编码，向量计算的是"整体语义"相似度
+  - 无法捕捉精细的词汇对应关系（如术语匹配、数字精确匹配）
+  - Top-20 结果中往往有噪音，排序并不完全准确
+
+  Reranker（交叉编码器）的优势：
+  - 同时处理 Query + Document，可以看到两者的词汇对应
+  - 精度显著高于双编码器，实验表明可提升 RAG 最终质量 10-30%
+
+mental_model: |
+  两阶段检索 = 猎头招聘流程
+  Phase 1（粗检索）= 简历筛选：从 1000 份简历中快速筛出 50 份（速度快，可能有漏网之鱼）
+  Phase 2（Reranking）= 面试官评估：HR 仔细评估这 50 份，精选出最合适的 5 份（精度高，但耗时）
+
+  向量检索适合"海量快速筛选"，Reranker 适合"精准深度评估"
+  两者结合 = 速度 + 精度
+
+how_it_works: |
+  Reranking 实现（以 Cohere Reranker 为例）：
+
+  import cohere
+
+  co = cohere.Client(api_key="...")
+
+  # Phase 1: 向量粗检索（快速）
+  candidate_chunks = vector_db.query(
+      query_embeddings=[query_vector],
+      n_results=50  # 粗检索 50 个候选
+  )["documents"][0]
+
+  # Phase 2: Reranking（精排）
+  rerank_results = co.rerank(
+      query=user_query,
+      documents=candidate_chunks,
+      top_n=5,           # 精选 5 个注入 Prompt
+      model="rerank-multilingual-v3.0"
+  )
+
+  # 获取重排后的 Top-5
+  final_chunks = [
+      candidate_chunks[r.index]
+      for r in rerank_results.results
+  ]
+
+  # 将 final_chunks 注入 RAG Prompt
+
+mainstream_rerankers:
+  - name: "Cohere Rerank"
+    type: "商业 API"
+    strengths: "调用简单，支持中文，多语言"
+    use_case: "快速集成，不想部署模型"
+  - name: "BAAI/bge-reranker-v2-m3"
+    type: "开源，本地部署"
+    strengths: "免费，中文效果优秀，可完全离线"
+    use_case: "数据隐私要求高，国内生产环境"
+  - name: "FlashRank"
+    type: "开源，轻量"
+    strengths: "速度极快（CPU 即可），适合低延迟场景"
+    use_case: "对延迟敏感的场景"
+
+performance_tradeoff: |
+  Reranker 带来的延迟增加（典型值）：
+  - 向量检索 Top-50：~10ms
+  - Reranker 对 50 个 Chunk 精排：~100-500ms（取决于模型和 Chunk 长度）
+  - 总增加延迟：~100-500ms
+
+  是否值得：
+  - 对话助手（用户可接受 1-2s 响应）：值得，质量提升明显
+  - 实时搜索（要求 <100ms）：不适合，考虑其他优化
+
+best_practices:
+  - "粗检索 Top-N 要足够大（20-100），给 Reranker 足够的候选池"
+  - "使用与语言匹配的 Reranker：中文场景用 bge-reranker，避免英文模型在中文上效果差"
+  - "Reranker 后保留 Top-3 到 Top-5 注入 Prompt，过多引入噪音，过少丢失信息"
+  - "通过 Evaluation 对比加/不加 Reranker 的 RAG 质量，量化收益"
+
+anti_patterns:
+  - pattern: "只用 Reranker 不用向量检索（用 Reranker 直接全库精排）"
+    consequence: "Reranker 速度慢，无法扩展到大规模知识库（10万+文档会超时）"
+  - pattern: "粗检索 Top-N 太小（N=5），给 Reranker 太少候选"
+    consequence: "Reranker 只能从 5 个里面选，召回上限就是 5，无法弥补粗检索的漏检"
+
+relationships:
+  is_improvement_of:
+    - id: "KN-C-000033"
+      note: "Reranking 是 Advanced RAG 相比 Naive RAG 的核心优化点之一"
+  related_concepts:
+    - id: "KN-C-000035"
+      note: "Hybrid Search 通常与 Reranking 配合使用（先混合搜索，再精排）"
+
+interview_points:
+  - "Reranking 解决了向量检索的什么问题？"
+  - "双编码器（向量检索）和交叉编码器（Reranker）的区别？"
+  - "两阶段检索的设计原则是什么？Top-N 和 Top-K 如何选择？"
+  - "Reranker 会增加多少延迟？在什么场景下值得使用？"
+
+exam_points:
+  - "Reranking = 两阶段检索：粗检索 Top-N（快）→ Reranker 精排 Top-K（准）"
+  - "Reranker = 交叉编码器，同时看 Query+Doc，精度高但速度慢"
+  - "典型配置：粗检索 Top-50，Reranker 精选 Top-5 注入 Prompt"
+  - "实验效果：Reranking 可提升 RAG 最终质量 10-30%"
+
+one_liner: "Reranking = 先快速海选，再精准面试——两阶段检索让 RAG 兼顾速度和精度。"
+difficulty: advanced

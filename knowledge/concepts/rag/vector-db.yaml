@@ -1,0 +1,134 @@
+id: "KN-C-000031"
+type: Tool
+name: "Vector Database（向量数据库）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - rag
+  - vector-db
+  - infrastructure
+
+aliases:
+  - "向量数据库"
+  - "VectorDB"
+  - "向量存储"
+
+summary: "专门存储和检索高维向量的数据库，支持近似最近邻（ANN）搜索——RAG 系统的核心存储组件。"
+
+definition: |
+  向量数据库是专门为存储、索引和检索高维 Embedding 向量而设计的数据库系统。
+  核心能力：给定一个查询向量，在毫秒级内从百万甚至十亿条向量中找到最相似的 K 个向量（K-NN 搜索）。
+  这个能力是通过近似最近邻（ANN）算法实现的（如 HNSW），
+  相比暴力遍历，在精度损失极小的前提下，速度提升 1000 倍以上。
+
+why: |
+  普通数据库（PostgreSQL/MySQL）不支持向量相似度检索：
+  它们只能精确匹配（WHERE id=123）或范围查询（WHERE score > 90），
+  无法计算"哪个向量和查询向量最相似"。
+  向量数据库解决了这个问题，让语义搜索从"概念"变成"可用的生产系统"。
+
+mental_model: |
+  向量数据库 = 语义搜索引擎
+  - 普通数据库 = 图书馆按书号找书（精确匹配）
+  - 向量数据库 = 图书馆按"这本书的内容"找相关书（语义匹配）
+
+  入库：把每本书的"内容摘要"转成向量坐标，存入数据库
+  检索：用"我想找关于机器学习的书"的向量坐标，找最近的向量
+
+how_it_works: |
+  典型使用流程（以 Chroma 为例）：
+
+  import chromadb
+  client = chromadb.Client()
+  collection = client.create_collection("knowledge_base")
+
+  # 入库（向量化 + 存储）
+  collection.add(
+      documents=["什么是 RAG？", "LangChain 是一个 LLM 框架"],
+      embeddings=[embedding_model.embed("什么是 RAG？"),
+                  embedding_model.embed("LangChain 是一个 LLM 框架")],
+      ids=["doc-1", "doc-2"]
+  )
+
+  # 检索（语义搜索）
+  results = collection.query(
+      query_embeddings=[embedding_model.embed("检索增强生成是什么？")],
+      n_results=3  # 返回最相似的 3 条
+  )
+  # 结果：["什么是 RAG？", ...]  # 语义相似，即使没有完全匹配的词
+
+  关键技术：HNSW（分层可导航小世界）
+  - 构建多层图结构，每层是原始向量的子集
+  - 查询时从上层（粗粒度）开始导航，逐层精细化
+  - 时间复杂度 O(log N) vs 暴力搜索 O(N)
+
+mainstream_products:
+  - name: "Chroma"
+    type: "开源，本地部署"
+    use_case: "开发/测试，单机中小规模"
+    strengths: "零配置，Python 原生，上手极快"
+  - name: "Qdrant"
+    type: "开源，支持云部署"
+    use_case: "生产环境，中大规模"
+    strengths: "Rust 实现，性能优秀，支持过滤条件检索"
+  - name: "Weaviate"
+    type: "开源，支持云部署"
+    use_case: "需要混合搜索（向量+关键词）的场景"
+    strengths: "内置 BM25，混合搜索开箱即用"
+  - name: "Pinecone"
+    type: "商业 SaaS"
+    use_case: "快速上线，不想运维"
+    strengths: "完全托管，自动扩缩容，无需运维"
+  - name: "pgvector"
+    type: "PostgreSQL 扩展"
+    use_case: "已有 PG 基础设施，数据量在千万以下"
+    strengths: "无需新增技术栈，SQL 查询向量"
+
+selection_criteria:
+  small_scale: "开发/原型：Chroma（本地，零配置）"
+  medium_scale: "生产，<1000万向量：Qdrant（性能好，开源可控）"
+  large_scale: "生产，>1000万向量：Pinecone 或托管 Qdrant"
+  existing_pg: "已有 PostgreSQL，数据量适中：pgvector"
+
+best_practices:
+  - "存入向量时，同时存储原始文本和元数据（source、chunk_id、date 等），检索后能直接获取上下文"
+  - "使用 Namespace/Collection 隔离不同业务场景的向量，避免相互干扰"
+  - "定期评估检索质量（召回率、精度），向量库内容陈旧或质量差时及时清理重建"
+  - "为生产向量库设置备份和恢复策略——向量化成本高，丢失代价大"
+
+anti_patterns:
+  - pattern: "用 numpy 数组在内存中做向量搜索（规模化后）"
+    consequence: "超过 10 万向量后内存溢出，无法持久化，重启丢失"
+  - pattern: "向量数据库里不存原始文本"
+    consequence: "检索到向量 ID 后，还要再去另一个数据库查文本，增加复杂度和延迟"
+  - pattern: "忽略元数据过滤"
+    consequence: "检索结果无法按时间、来源、权限过滤，所有用户看到同样的结果（多租户问题）"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000030"
+      note: "向量数据库存储的是 Embedding 模型生成的向量"
+  used_by:
+    - id: "KN-C-000033"
+      note: "RAG 使用向量数据库做语义检索"
+  related_concepts:
+    - id: "KN-C-000035"
+      note: "Hybrid Search 结合向量数据库和关键词搜索"
+
+interview_points:
+  - "向量数据库和普通数据库的核心区别是什么？"
+  - "ANN（近似最近邻）和暴力搜索（KNN）的区别？为什么 ANN 更实用？"
+  - "主流向量数据库有哪些？你会如何选型？"
+  - "向量数据库里应该存什么元数据？为什么？"
+  - "多租户场景下向量数据库如何隔离不同租户的数据？（L3+ 考察）"
+
+exam_points:
+  - "向量数据库核心能力：毫秒级相似向量检索（ANN）"
+  - "HNSW：主流 ANN 算法，O(log N) 复杂度，精度损失极小"
+  - "选型简则：开发用 Chroma，生产用 Qdrant，快速上线用 Pinecone"
+  - "必须同时存向量 + 原始文本 + 元数据，元数据支持过滤条件"
+
+one_liner: "向量数据库 = 语义搜索引擎，毫秒内在百万向量中找最相似的 K 个——RAG 的核心存储组件。"
+difficulty: intermediate

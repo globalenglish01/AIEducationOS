@@ -1,0 +1,139 @@
+id: "KN-C-000030"
+type: Concept
+name: "Embedding（向量嵌入）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - rag
+  - embedding
+  - vector
+  - foundation
+
+aliases:
+  - "向量嵌入"
+  - "文本向量化"
+  - "Embedding Model"
+
+summary: "将文本转换为高维向量，使语义相似的内容在向量空间中距离相近——RAG 和语义搜索的数学基础。"
+
+definition: |
+  Embedding 是通过专门的模型（Embedding Model）将任意文本转换为固定维度浮点数向量的技术。
+  核心特性：语义相似的文本，其对应向量在向量空间中的距离也更近（余弦相似度高）。
+  Embedding 将"人类理解的语义"转化为"机器可以计算的数学结构"，
+  是 RAG、语义搜索、推荐系统的底层基础。
+
+why: |
+  传统关键词搜索（BM25）基于词汇精确匹配：
+  搜"汽车"找不到"轿车"，搜"如何减肥"找不到"体重管理方法"。
+  Embedding 使搜索理解语义：
+  "汽车"和"轿车"的向量距离很近，可以互相找到。
+  这是 RAG 能做到"语义检索"而不是"关键词检索"的根本原因。
+
+mental_model: |
+  Embedding = 给每段文字分配一个"语义坐标"
+  - 想象一个巨大的多维空间（1536维）
+  - 每段文字都有一个坐标点
+  - 语义相近的文字，坐标点也相近
+  - "苹果手机"和"iPhone"的坐标点很近
+  - "苹果手机"和"量子力学"的坐标点很远
+
+  类比：颜色的 RGB 值
+  - 红色 = [255, 0, 0]，橙色 = [255, 128, 0]
+  - RGB 距离近 = 颜色相似
+  - Embedding 向量距离近 = 语义相似
+  只不过 Embedding 是 1536 维，不是 3 维
+
+how_it_works: |
+  Embedding 使用流程：
+
+  from openai import OpenAI
+  client = OpenAI()
+
+  # 获取文本的 Embedding 向量
+  text = "如何提高 LLM 的输出质量？"
+  response = client.embeddings.create(
+      model="text-embedding-3-small",
+      input=text
+  )
+  vector = response.data[0].embedding  # 1536 维浮点数列表
+  # vector = [0.023, -0.41, 0.87, ...]  # 长度 1536
+
+  # 计算两个向量的相似度
+  import numpy as np
+  def cosine_similarity(a, b):
+      return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+  similarity = cosine_similarity(vector_a, vector_b)
+  # similarity 范围 [-1, 1]，越接近 1 表示语义越相似
+
+key_metrics:
+  - name: "向量维度"
+    description: "Embedding 向量的长度。维度越高，理论上能表达的语义越丰富，但存储和计算成本越高"
+    typical_values: "768（BERT）/ 1536（OpenAI text-embedding-3-small）/ 3072（text-embedding-3-large）"
+  - name: "余弦相似度（Cosine Similarity）"
+    description: "两个向量夹角的余弦值，范围 [-1, 1]，最常用的相似度度量"
+    formula: "cos(θ) = A·B / (|A|×|B|)"
+  - name: "检索延迟"
+    description: "获取一段文本 Embedding 的时间，影响 RAG 系统的响应速度"
+
+common_models:
+  - name: "text-embedding-3-small"
+    provider: "OpenAI"
+    dimensions: 1536
+    use_case: "通用语义搜索，性价比高"
+  - name: "text-embedding-3-large"
+    provider: "OpenAI"
+    dimensions: 3072
+    use_case: "高精度语义搜索，成本较高"
+  - name: "BAAI/bge-m3"
+    provider: "开源（HuggingFace）"
+    dimensions: 1024
+    use_case: "中文语义搜索，免费部署"
+  - name: "text-embedding-v2"
+    provider: "阿里云通义"
+    use_case: "中文场景，国内生产环境"
+
+best_practices:
+  - "Query 和 Document 使用同一个 Embedding 模型，否则向量空间不兼容"
+  - "中文场景优先测试 bge-m3 或通义 Embedding，英文模型在中文上效果可能下降"
+  - "Embedding 结果可以缓存：同一段文本的 Embedding 是固定的，重复计算浪费成本"
+  - "Embedding 前对文本做清洗（去除多余空格、无意义字符）能提升向量质量"
+
+anti_patterns:
+  - pattern: "用 LLM 生成 Embedding（让 ChatGPT 把文本转成向量）"
+    consequence: "LLM 不是 Embedding 模型，这个做法根本不可行；必须用专门的 Embedding API"
+  - pattern: "Embedding 模型频繁更换"
+    consequence: "换模型后向量空间改变，已有向量库全部失效，必须重新向量化所有文档"
+  - pattern: "不同模型生成的向量混用"
+    consequence: "向量空间不兼容，相似度计算完全无意义"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "Embedding 通常由 LLM 家族的专用模型生成"
+  used_by:
+    - id: "KN-C-000031"
+      note: "向量数据库存储和检索 Embedding 向量"
+    - id: "KN-C-000033"
+      note: "RAG 用 Embedding 做语义检索"
+  related_concepts:
+    - id: "KN-C-000032"
+      note: "Chunking 决定每个文档片段的大小，直接影响 Embedding 质量"
+
+interview_points:
+  - "Embedding 是什么？它解决了什么问题（相比关键词搜索）？"
+  - "余弦相似度是什么？如何用它判断两段文字的语义相似度？"
+  - "选择 Embedding 模型时要考虑哪些因素？"
+  - "为什么同一个系统里不能混用不同的 Embedding 模型？"
+  - "Embedding 缓存有什么意义？（L2+ 成本优化）"
+
+exam_points:
+  - "Embedding = 文本 → 固定维度浮点向量，语义相近的文本向量距离近"
+  - "核心度量：余弦相似度（Cosine Similarity），范围 [-1,1]，越接近 1 越相似"
+  - "同一系统必须用同一个 Embedding 模型，不同模型向量空间不兼容"
+  - "Embedding 结果可以缓存（同文本→同向量），避免重复 API 调用"
+
+one_liner: "Embedding = 给文字分配语义坐标，让计算机能计算'语义距离'——RAG 的数学基础。"
+difficulty: intermediate

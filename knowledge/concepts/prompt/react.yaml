@@ -1,0 +1,117 @@
+id: "KN-P-000004"
+type: Pattern
+name: "ReAct (Reasoning + Acting)"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - prompt-engineering
+  - agent
+  - reasoning
+  - pattern
+
+aliases:
+  - "ReAct Pattern"
+  - "ReAct 模式"
+  - "思考-行动循环"
+
+summary: "Agent 的核心工作模式：交替执行'思考（Thought）→ 行动（Action）→ 观察（Observation）'，直到完成任务。"
+
+definition: |
+  ReAct（Reasoning + Acting）是一种将推理（CoT）与行动（Tool Use）交替结合的 Agent 模式。
+  Agent 在每一步先'思考'（Thought：分析当前状态，决定下一步行动），
+  再'行动'（Action：调用工具），然后'观察'（Observation：获取工具返回结果），
+  循环直到任务完成或达到终止条件。
+  这是几乎所有 LLM Agent 框架（LangGraph、AutoGen 等）的底层运行逻辑。
+
+why: |
+  单纯的 LLM 对话无法完成需要多步骤、多工具的复杂任务——
+  它只能"说"，不能"做"。
+  ReAct 让 LLM 具备了"边想边做"的能力：
+  每次工具调用的结果成为下一步思考的输入，
+  LLM 像一个真正的工程师一样：思考→尝试→观察结果→调整→再尝试。
+
+mental_model: |
+  ReAct = 侦探破案的工作方式
+  - 思考（Thought）：根据线索分析，决定下一步调查方向
+  - 行动（Action）：去某个地方取证、询问证人
+  - 观察（Observation）：得到新线索
+  - 循环，直到案件告破
+
+  或者：
+  ReAct = 工程师调试 bug
+  Thought: 错误在第10行，可能是空指针
+  Action: 运行调试器，查看第10行变量值
+  Observation: 变量确实为 None
+  Thought: 需要在赋值之前添加判空
+  Action: 修改代码并重新运行
+  Observation: 测试通过
+  → 完成
+
+how_it_works: |
+  ReAct 循环（伪代码）：
+  while not done:
+      thought = llm.think(current_state)      # 推理：下一步做什么？
+      action = llm.decide_action(thought)     # 决策：调用哪个工具？
+      observation = tool.execute(action)      # 执行：运行工具
+      current_state.update(observation)       # 更新：把结果加入上下文
+      if llm.is_done(current_state):
+          done = True
+  return llm.final_answer(current_state)
+
+  关键安全机制：
+  - max_iterations（最大迭代次数）：防止无限循环
+  - timeout（超时强制终止）：防止单步卡死
+  - 反思节点（Reflection）：定期检查是否在正确轨道上
+
+core_principles:
+  - "思考在行动之前：每次行动必须有 Thought 解释原因，不允许盲目行动"
+  - "观察驱动下一步：Observation 是下一个 Thought 的输入，形成闭环"
+  - "必须设置终止条件：max_iterations + timeout，否则可能无限循环"
+  - "Thought 是可检查的：通过查看 Thought 可以理解 Agent 的决策过程（可解释性）"
+
+best_practices:
+  - "在 System Prompt 中明确规定 Thought-Action-Observation 格式，强制 LLM 遵守"
+  - "设置合理的 max_iterations（通常10-20步），超出强制终止并报告"
+  - "记录每步的 Thought/Action/Observation，便于调试和审计"
+  - "结合 Human-in-the-Loop：高风险 Action 执行前暂停，等待人工确认"
+
+anti_patterns:
+  - pattern: "不设置 max_iterations"
+    consequence: "Agent 陷入循环，无限消耗 Token 和时间，系统无法自动恢复"
+  - pattern: "Action 执行后不更新 Observation 到上下文"
+    consequence: "LLM 看不到工具结果，下一步思考基于过时信息，任务无法完成"
+
+relationships:
+  prerequisites:
+    - id: "KN-P-000003"
+      note: "ReAct 是 CoT（推理）在 Agent 场景的扩展"
+    - id: "KN-C-000010"
+      note: "ReAct 通过 Prompt 驱动整个循环"
+  used_by:
+    - id: "KN-C-000020"
+      note: "Agent 的核心运行机制就是 ReAct Loop"
+  related_concepts:
+    - id: "KN-C-000021"
+      note: "Agent Loop 是 ReAct 的工程化实现"
+
+interview_points:
+  - "ReAct 模式是什么？Thought/Action/Observation 分别代表什么？"
+  - "为什么 ReAct 比单纯的 CoT 更适合 Agent 场景？"
+  - "如何防止 ReAct Agent 无限循环？"
+  - "Thought 的可解释性对系统有什么价值？"
+  - "ReAct 和 LangGraph 的 Node/Edge 有什么对应关系？（L2+）"
+
+exam_points:
+  - "ReAct = Reasoning（Thought）+ Acting（Action + Observation）的循环"
+  - "终止条件：任务完成 OR 达到 max_iterations OR 超时"
+  - "Thought 的作用：解释决策过程，使 Agent 行为可解释、可调试"
+  - "ReAct 是绝大多数 Agent 框架的底层运行逻辑"
+
+one_liner: "ReAct = 思考→行动→观察→循环，是 Agent 能'自主完成任务'的底层引擎。"
+difficulty: intermediate
+
+references:
+  - "ReAct 原论文: Yao et al., 2022 (ReAct: Synergizing Reasoning and Acting in Language Models)"
+  - "LangGraph Agent 实现: https://langchain-ai.github.io/langgraph/"

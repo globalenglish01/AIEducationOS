@@ -1,0 +1,164 @@
+id: "KN-C-000028"
+type: Pattern
+name: "Interrupt（中断与恢复）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - workflow
+  - interrupt
+  - human-in-the-loop
+  - pattern
+
+aliases:
+  - "Agent 中断"
+  - "Interrupt & Resume"
+  - "Breakpoint"
+
+summary: "在 Agent 执行到指定节点前/后自动暂停，等待外部输入（人工审批、补充信息）后继续——HITL 的底层机制。"
+
+definition: |
+  Interrupt 是 LangGraph 提供的 Agent 执行控制机制：
+  在编译图时指定 interrupt_before 或 interrupt_after 节点，
+  Agent 执行到该节点时自动暂停，将当前状态持久化到 Checkpoint，
+  等待外部信号（人工审批、用户输入）后，调用 Resume 继续执行。
+  Interrupt 是 Human-in-the-Loop（HITL）的底层实现机制，
+  也是 Agent 支持"交互式任务"（而非纯自动化任务）的关键能力。
+
+why: |
+  纯自动化 Agent 的问题：
+  - 无法在任务进行中获取额外输入（用户说"等等，换个方向"）
+  - 高风险操作无法暂停确认（删除数据库、发送大量邮件）
+  - 长任务无法在中途检查进度并调整
+
+  Interrupt 解决方案：
+  - 在关键节点设置中断点
+  - 暂停时把"当前执行状态 + 待确认操作"展示给人类
+  - 人类 Approve/Reject/Modify 后，恢复执行
+
+  Interrupt 让 Agent 从"黑盒自动执行"变成"透明的人机协作"
+
+mental_model: |
+  Interrupt = 自动化流水线上的质检站
+  - 无 Interrupt：产品在流水线上全自动生产，出了问题只能事后补救
+  - 有 Interrupt：在关键工序设置质检点，质检员检查后盖章才能继续，问题在线发现
+
+  类比：代码 CI/CD 流水线
+  - 自动测试通过 → 自动继续
+  - 部署到生产前 → 暂停，等待 Release Manager 人工批准 → 批准后继续部署
+
+how_it_works: |
+  LangGraph Interrupt 完整实现：
+
+  from langgraph.graph import StateGraph, END
+  from langgraph.checkpoint.memory import MemorySaver
+
+  # 定义图（省略节点定义）
+  graph = StateGraph(AgentState)
+  graph.add_node("plan", plan_task)
+  graph.add_node("execute", execute_action)   ← 危险操作
+  graph.add_node("report", generate_report)
+  graph.add_edge("plan", "execute")
+  graph.add_edge("execute", "report")
+  graph.add_edge("report", END)
+
+  # 编译时设置 Interrupt 点
+  app = graph.compile(
+      checkpointer=MemorySaver(),
+      interrupt_before=["execute"],  # 执行 execute 节点前暂停
+      # interrupt_after=["plan"],    # 或：plan 节点执行后暂停
+  )
+
+  config = {"configurable": {"thread_id": "task-001"}}
+
+  # Step 1: 执行到 interrupt 点，自动暂停
+  state = app.invoke({"task": "清理 2023 年以前的所有订单数据"}, config)
+  # 此时执行停在 execute 节点之前
+
+  # Step 2: 获取待执行操作，展示给人类
+  pending_state = app.get_state(config)
+  print("待执行操作：", pending_state.values)
+  # 输出："将删除 2,847,392 条订单记录，涉及金额 ¥2.3亿"
+
+  # Step 3: 人类审批
+  user_input = input("批准(y) / 拒绝(n) / 修改范围(m): ")
+
+  if user_input == "y":
+      # 批准：继续执行
+      result = app.invoke(None, config)
+
+  elif user_input == "n":
+      # 拒绝：更新状态，走终止分支
+      app.update_state(config, {"approved": False, "reason": "数据量超预期"})
+      result = app.invoke(None, config)
+
+  elif user_input == "m":
+      # 修改：更新 State 中的参数，再继续
+      new_threshold = input("请输入新的时间范围（年）: ")
+      app.update_state(config, {"delete_before_year": int(new_threshold)})
+      result = app.invoke(None, config)
+
+interrupt_vs_checkpoint:
+  checkpoint: "被动保存：每个 Node 执行后自动保存状态（保障可靠性）"
+  interrupt: "主动暂停：在指定节点前/后暂停，等待外部输入（实现 HITL）"
+  relationship: "Interrupt 依赖 Checkpoint 实现：暂停时把状态写入 Checkpoint，Resume 时从 Checkpoint 恢复"
+
+update_state: |
+  app.update_state() 允许人类在 Resume 前修改 Agent 的状态：
+  - 修改任务参数（如调整操作范围）
+  - 注入额外上下文（如提供缺失信息）
+  - 覆盖 Agent 的决策（如替换 Agent 选择的工具）
+  这使得 HITL 不只是"批准/拒绝"，还能"修改后继续"
+
+design_patterns:
+  - name: "Pre-action Interrupt"
+    when: "interrupt_before=['execute']"
+    use_case: "执行不可逆操作前暂停确认"
+  - name: "Post-plan Interrupt"
+    when: "interrupt_after=['plan']"
+    use_case: "Agent 生成执行计划后，人类审查计划再决定是否执行"
+  - name: "多点 Interrupt"
+    when: "interrupt_before=['execute', 'publish']"
+    use_case: "多个关键节点都需要人工确认"
+
+best_practices:
+  - "Interrupt 点展示的信息要足够清晰，让人类能理解'将要发生什么'"
+  - "提供结构化的选项（approve/reject/modify），不要让人类猜怎么回复"
+  - "设置 Interrupt 超时机制：人类长时间不回复时自动 reject（Fail-safe）"
+  - "记录所有 Interrupt 事件和审批结果（用于 Audit Log 和合规）"
+
+anti_patterns:
+  - pattern: "中断点展示原始 State 数据而非可读的操作描述"
+    consequence: "人类看到一堆 JSON，无法理解要确认什么，点击批准相当于盲目批准"
+  - pattern: "没有超时机制"
+    consequence: "人类下班后，Agent 永久挂起等待，占用资源，任务无法完成"
+  - pattern: "Interrupt 后不记录审批信息"
+    consequence: "无法追溯'谁批准了什么操作'，不满足合规审计要求"
+
+relationships:
+  depends_on:
+    - id: "KN-C-000027"
+      note: "Interrupt 依赖 Checkpoint 保存暂停时的状态"
+  implements:
+    - id: "KN-C-000024"
+      note: "Interrupt 是 HITL 的底层实现机制"
+  provided_by:
+    - id: "KN-C-000026"
+      note: "LangGraph 通过 interrupt_before/interrupt_after 提供 Interrupt 能力"
+
+interview_points:
+  - "LangGraph 的 Interrupt 是什么？和 Checkpoint 有什么关系？"
+  - "interrupt_before 和 interrupt_after 的区别？分别适合什么场景？"
+  - "Interrupt 后如何修改 Agent 的执行参数再继续？（update_state 的用法）"
+  - "如何在 Interrupt 机制上设计超时 Fail-safe？（L3+ 考察）"
+
+exam_points:
+  - "Interrupt = 在指定节点前/后主动暂停，等待外部输入后 Resume"
+  - "interrupt_before：节点执行前暂停（用于操作前确认）"
+  - "interrupt_after：节点执行后暂停（用于计划审查）"
+  - "Resume 三种方式：invoke(None) 继续 / update_state + invoke 修改后继续 / 走终止分支"
+  - "Interrupt 依赖 Checkpoint：暂停状态通过 Checkpoint 持久化"
+
+one_liner: "Interrupt = 在关键节点设质检站，Agent 自动暂停等待人工确认，update_state 可修改参数后再继续。"
+difficulty: advanced

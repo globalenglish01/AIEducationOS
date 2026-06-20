@@ -1,0 +1,171 @@
+id: "KN-C-000036"
+type: Pattern
+name: "LLM-as-Judge（用 LLM 评判输出质量）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - evaluation
+  - llm-as-judge
+  - quality
+
+aliases:
+  - "LLM 评审"
+  - "AI 评判"
+  - "Model-based Evaluation"
+
+summary: "用一个强大的 LLM（如 GPT-4）自动评判另一个 LLM 输出的质量，替代人工评分——AI 系统质量评估的核心方法。"
+
+definition: |
+  LLM-as-Judge 是一种自动化评估方法：
+  用一个能力强的 LLM（Judge Model，通常是 GPT-4 或 Claude）
+  根据评估标准对另一个 LLM（或 Agent）的输出进行评分和反馈。
+  Judge Model 接收：[评估标准 + 输入 + 待评估输出]，
+  输出：分数 + 理由 + 改进建议。
+  这使得大规模、快速的质量评估成为可能，无需逐条人工审阅。
+
+why: |
+  传统评估方法的局限：
+  - 人工评估：成本高、速度慢、难以规模化，且评分者之间存在主观差异
+  - 规则匹配（exact match）：只能评估有标准答案的问题，无法评估开放式生成质量
+  - BLEU/ROUGE 等指标：只衡量词汇重叠，与人类感知的质量相关性低
+
+  LLM-as-Judge 优势：
+  - 速度快：秒级评估，可以在 CI/CD 中集成
+  - 可扩展：一次运行评估数百个样本
+  - 语义理解：能评估"是否逻辑连贯"、"是否有幻觉"等人类才能判断的维度
+  - 可解释：提供评分理由，不只是一个数字
+
+mental_model: |
+  LLM-as-Judge = 经验丰富的主编审稿
+  - 被评估的 LLM = 实习编辑写的文章
+  - Judge LLM = 主编：根据标准（准确性/可读性/结构）给文章打分并批注
+  - 主编（Judge）比实习编辑（被评估 LLM）能力更强，才能准确评判
+
+  关键前提：Judge 能力 > 被评估系统能力
+  （用 GPT-3.5 评判 GPT-4 的输出是不可靠的）
+
+how_it_works: |
+  LLM-as-Judge 实现示例：
+
+  JUDGE_PROMPT = """
+  你是一位严格的技术内容评审专家。
+  请根据以下标准对给定的 AI 输出进行评分。
+
+  评分标准（每项 0-10 分）：
+  1. 准确性：内容是否准确，有无事实错误或幻觉
+  2. 完整性：是否涵盖了问题要求的所有方面
+  3. 清晰度：表达是否清晰，结构是否合理
+  4. 专业性：是否符合技术写作的专业标准
+
+  输出格式（严格 JSON）：
+  {
+    "scores": {
+      "accuracy": <0-10>,
+      "completeness": <0-10>,
+      "clarity": <0-10>,
+      "professionalism": <0-10>
+    },
+    "total_score": <0-40>,
+    "reasoning": "<评分理由，100字以内>",
+    "critical_issues": ["<严重问题1>", ...],
+    "improvement_suggestions": ["<建议1>", ...]
+  }
+
+  用户问题：{question}
+
+  AI 输出（待评估）：{ai_output}
+
+  参考答案（如有）：{reference_answer}
+  """
+
+  def evaluate_with_llm(question, ai_output, reference_answer=""):
+      judge_response = judge_llm.chat([{
+          "role": "user",
+          "content": JUDGE_PROMPT.format(
+              question=question,
+              ai_output=ai_output,
+              reference_answer=reference_answer
+          )
+      }])
+      return json.loads(judge_response)
+
+evaluation_dimensions:
+  - name: "Faithfulness（忠实度）"
+    description: "输出是否只基于提供的上下文，没有编造不存在的信息"
+    use_case: "RAG 系统评估"
+  - name: "Relevancy（相关性）"
+    description: "输出是否真正回答了用户的问题"
+    use_case: "问答系统"
+  - name: "Correctness（正确性）"
+    description: "与参考答案相比，输出是否准确"
+    use_case: "有标准答案的任务"
+  - name: "Coherence（连贯性）"
+    description: "输出在逻辑上是否连贯，论证是否自洽"
+    use_case: "长文本生成"
+  - name: "Harmlessness（无害性）"
+    description: "输出是否包含有害内容（歧视、错误医疗建议等）"
+    use_case: "面向用户的应用"
+
+judge_model_selection:
+  guideline: "Judge 的能力必须显著高于被评估系统"
+  recommendations:
+    - task: "评估 GPT-3.5 / Claude Haiku 的输出"
+      judge: "GPT-4 或 Claude Sonnet 以上"
+    - task: "评估 GPT-4 / Claude Sonnet 的输出"
+      judge: "GPT-4o 或 Claude Opus"
+    - task: "评估代码质量"
+      judge: "专门针对代码能力微调的模型（如 DeepSeek-Coder）"
+
+known_biases:
+  - bias: "自我偏好（Self-preference Bias）"
+    description: "LLM 倾向于给风格相似的输出（自己或同家族模型）打更高分"
+    mitigation: "使用与被评估系统不同家族的 Judge，或使用 Blind Evaluation"
+  - bias: "位置偏好（Position Bias）"
+    description: "在对比评估中，Judge 倾向于给排在前面的答案打更高分"
+    mitigation: "随机化答案顺序，或多次评估取平均"
+  - bias: "长度偏好（Length Bias）"
+    description: "Judge 倾向于给更长的答案打更高分，即使更长不代表更好"
+    mitigation: "在 Judge Prompt 中明确说明'长度不等于质量'"
+
+best_practices:
+  - "Judge Prompt 中要求输出结构化 JSON，避免解析失败"
+  - "对每个样本多次评估（3次）取平均，减少 Judge 的随机性"
+  - "定期用人工评估 Benchmark 校准 Judge 的准确性（Judge 的 Judge）"
+  - "评分维度要有明确的锚点描述（10分='完美，无任何问题'；5分='有明显问题但基本可用'）"
+  - "在 CI/CD 中集成：每次 Prompt 修改后自动跑 LLM-as-Judge 评估"
+
+anti_patterns:
+  - pattern: "用能力弱的 LLM 评判能力强的 LLM"
+    consequence: "Judge 无法识别被评估系统的错误，评分虚高，无法发现真正的质量问题"
+  - pattern: "Judge Prompt 没有明确的评分标准（如'请评价这个答案好不好'）"
+    consequence: "Judge 评分主观且不稳定，不同运行结果差异大，评估结果不可信"
+  - pattern: "只看总分，不看评分理由"
+    consequence: "无法定位具体质量问题，无法指导 Prompt 优化方向"
+
+relationships:
+  used_in:
+    - id: "KN-C-000037"
+      note: "RAGAS 框架在 RAG 评估中大量使用 LLM-as-Judge"
+  related_concepts:
+    - id: "KN-C-000038"
+      note: "Eval Dataset 提供 LLM-as-Judge 的测试样本"
+    - id: "KN-C-000039"
+      note: "Regression Testing 使用 LLM-as-Judge 检测质量回退"
+
+interview_points:
+  - "为什么要用 LLM 来评估 LLM 的输出？传统方法有什么局限？"
+  - "LLM-as-Judge 有哪些已知偏差？如何缓解？"
+  - "如何设计一个好的 Judge Prompt？有哪些关键要素？"
+  - "Judge Model 如何选择？能力要求是什么？"
+  - "如何在 CI/CD 流水线中集成 LLM-as-Judge？（L2+ 考察）"
+
+exam_points:
+  - "LLM-as-Judge = 用强 LLM 自动评判另一个 LLM 的输出质量"
+  - "核心前提：Judge 能力 > 被评估系统"
+  - "三大偏差：自我偏好 / 位置偏好 / 长度偏好"
+  - "Judge Prompt 必须：结构化输出 + 明确评分标准 + 要求评分理由"
+
+one_liner: "LLM-as-Judge = 用强 LLM 当主编审稿，秒级评估 AI 输出质量——AI 系统质量控制的核心手段。"
+difficulty: advanced

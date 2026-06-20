@@ -1,0 +1,211 @@
+id: "KN-C-000047"
+type: Practice
+name: "Structured Logging（结构化日志）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - observability
+  - logging
+  - best-practice
+
+aliases:
+  - "结构化日志"
+  - "JSON Logging"
+  - "机器可读日志"
+
+summary: "以固定 JSON 格式记录系统事件，而非自由文本——使日志可被机器查询、聚合、告警，是可观测性的基础实践。"
+
+definition: |
+  Structured Logging（结构化日志）是以固定的结构化格式（通常是 JSON）
+  而非自由文本字符串记录系统事件的日志实践。
+  每条日志包含预定义的字段（时间戳、级别、事件类型、上下文数据），
+  可以被日志聚合系统（ELK、Loki）直接解析、查询和聚合，
+  无需正则表达式解析。
+
+why: |
+  自由文本日志（print/str format）的问题：
+  - "LLM 调用耗时 2.3 秒，Token: 1234" → 机器解析困难
+  - 格式不一致：每个开发者写法不同，无法统一查询
+  - 无法高效过滤：找"所有 Token > 2000 的调用"需要复杂正则
+  - 无法告警：无法基于文本日志触发自动告警
+
+  Structured Logging 的优势：
+  - 机器可读：每个字段都有固定 key，直接查询 token_count > 2000
+  - 统一格式：整个团队遵循同一 Schema
+  - 可聚合：统计"今日平均 Token 消耗"，一条 SQL/PromQL 查询
+
+mental_model: |
+  Structured Logging = 数据库记录 vs 自由文字
+
+  自由文本日志（难以机器处理）：
+  "[2026-06-19 10:23:45] INFO: GPT-4o 调用成功，耗时 2.3s，消耗 1234 个 Token，成本 $0.012"
+
+  Structured Logging（机器友好）：
+  {
+    "timestamp": "2026-06-19T10:23:45.123Z",
+    "level": "INFO",
+    "event": "llm_call_success",
+    "model": "gpt-4o",
+    "duration_ms": 2300,
+    "token_count": 1234,
+    "cost_usd": 0.012,
+    "trace_id": "abc123",
+    "user_id": "u-456"
+  }
+
+  后者可以直接做：
+  SELECT SUM(cost_usd) WHERE timestamp > today  → 今日总成本
+  alert IF AVG(duration_ms) > 5000              → 延迟告警
+
+llm_log_schema: |
+  LLM 应用的标准日志 Schema：
+
+  # LLM 调用日志
+  {
+    "timestamp": "2026-06-19T10:23:45.123Z",   # ISO 8601
+    "level": "INFO",                            # DEBUG/INFO/WARN/ERROR
+    "event": "llm_call",                        # 事件类型（固定枚举）
+    "trace_id": "t-abc123",                     # 关联 Trace
+    "span_id": "s-def456",                      # 关联 Span
+    "user_id": "u-789",                         # 用户标识（脱敏）
+    "session_id": "sess-012",                   # 会话标识
+    "model": "gpt-4o",                          # 使用的模型
+    "prompt_tokens": 856,                       # 输入 Token 数
+    "completion_tokens": 378,                   # 输出 Token 数
+    "total_tokens": 1234,                       # 总 Token 数
+    "duration_ms": 2300,                        # 调用耗时（毫秒）
+    "cost_usd": 0.012,                          # 本次调用费用
+    "status": "success",                        # success/error/timeout
+    "error_code": null,                         # 错误码（如 429, 500）
+    "retry_count": 0,                           # 重试次数
+    "cached": false                             # 是否命中缓存
+  }
+
+  # 工具调用日志
+  {
+    "event": "tool_call",
+    "tool_name": "vector_search",
+    "trace_id": "t-abc123",
+    "params": {"query_length": 45, "top_k": 5},  # 注意：不记录原始 query（可能含 PII）
+    "result_count": 5,
+    "duration_ms": 123,
+    "status": "success"
+  }
+
+  # 安全事件日志
+  {
+    "event": "security_alert",
+    "level": "WARN",
+    "alert_type": "prompt_injection_detected",
+    "user_id": "u-789",
+    "pattern_matched": "ignore previous instructions",
+    "action_taken": "blocked"
+  }
+
+logging_levels: |
+  日志级别使用规范（LLM 应用）：
+  DEBUG：详细调试信息（Prompt 内容、检索结果），仅开发环境
+  INFO：正常操作事件（LLM 调用成功、工具调用完成）
+  WARN：非预期但可处理的情况（重试、Context 接近上限、成本告警）
+  ERROR：操作失败但系统继续运行（LLM 调用失败、工具超时）
+  CRITICAL：严重错误，系统无法继续（DB 连接失败、API Key 无效）
+
+sensitive_data_handling: |
+  日志中的敏感数据处理原则：
+  - 不记录原始 Prompt（可能含用户 PII）
+  - 不记录 LLM 原始输出（可能含敏感信息）
+  - 不记录 API Key、密码、Token
+  - 记录"长度"、"类型"而非"内容"
+  - 如需记录内容用于调试：只在 DEBUG 级别，且只在开发环境
+
+  用 trace_id 关联详细内容（存储在 Tracing 系统，有访问控制），
+  日志只记录元数据（可量化、可聚合的数值和枚举）
+
+implementation: |
+  Python 结构化日志实现（使用 structlog）：
+
+  import structlog
+  import logging
+
+  # 配置 structlog 输出 JSON
+  structlog.configure(
+      processors=[
+          structlog.processors.TimeStamper(fmt="iso"),
+          structlog.stdlib.add_log_level,
+          structlog.processors.JSONRenderer()
+      ]
+  )
+
+  logger = structlog.get_logger()
+
+  # 记录 LLM 调用
+  def call_llm_with_logging(prompt, model="gpt-4o", trace_id=None):
+      start = time.time()
+      try:
+          response = llm.chat(prompt, model=model)
+          duration = int((time.time() - start) * 1000)
+
+          logger.info(
+              "llm_call",
+              event="llm_call",
+              model=model,
+              prompt_tokens=response.usage.prompt_tokens,
+              completion_tokens=response.usage.completion_tokens,
+              duration_ms=duration,
+              cost_usd=calculate_cost(response.usage),
+              status="success",
+              trace_id=trace_id
+          )
+          return response
+
+      except Exception as e:
+          logger.error(
+              "llm_call_failed",
+              event="llm_call",
+              model=model,
+              error=str(e),
+              error_type=type(e).__name__,
+              duration_ms=int((time.time() - start) * 1000),
+              status="error",
+              trace_id=trace_id
+          )
+          raise
+
+best_practices:
+  - "每条日志必须包含 trace_id，用于关联同一次请求的所有日志"
+  - "使用固定的 event 枚举值，便于查询和告警（不要用自由文本描述事件类型）"
+  - "日志不包含原始内容（Prompt/Response），只记录元数据（长度、Token 数、成本）"
+  - "生产环境最低级别 INFO，DEBUG 只在开发环境（否则日志量爆炸）"
+
+anti_patterns:
+  - pattern: "print(f'LLM 调用成功，耗时 {duration}s')"
+    consequence: "无法机器解析，无法聚合统计，无法触发告警"
+  - pattern: "日志中记录完整的 Prompt 内容"
+    consequence: "Prompt 可能包含用户 PII，日志系统的访问控制通常比应用系统宽松，导致隐私泄露"
+  - pattern: "日志字段不统一（有时叫 duration，有时叫 time_ms）"
+    consequence: "查询时需要同时查多个字段名，聚合统计出错"
+
+relationships:
+  is_part_of:
+    - id: "KN-C-000046"
+      note: "Structured Logging 是 LLM Observability 的日志支柱"
+  complements:
+    - id: "KN-C-000044"
+      note: "Tracing 记录调用链结构，Logging 记录事件详情，两者互补"
+
+interview_points:
+  - "Structured Logging 和普通 print 日志有什么区别？为什么重要？"
+  - "LLM 应用的日志 Schema 应该包含哪些关键字段？"
+  - "日志中应该如何处理敏感数据（Prompt 内容、用户信息）？"
+  - "如何用 trace_id 关联分散在不同服务中的日志？"
+
+exam_points:
+  - "Structured Logging = JSON 格式的机器可读日志，与自由文本日志的核心区别"
+  - "必须字段：timestamp / level / event / trace_id / status"
+  - "不记录原始内容（Prompt/Response），只记录元数据"
+  - "LLM 专属字段：prompt_tokens / completion_tokens / cost_usd / model"
+
+one_liner: "结构化日志 = 把日志写成 JSON 数据库记录，机器可查询可告警，是可观测性从'看日志'到'查数据'的关键一步。"
+difficulty: intermediate

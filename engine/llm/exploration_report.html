@@ -1,0 +1,243 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Native System 完整探索报告</title>
+<style>
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif;
+  line-height: 1.6;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  background: #f5f5f5;
+  color: #333;
+}
+h1 { color: #1a73e8; border-bottom: 3px solid #1a73e8; padding-bottom: 10px; }
+h2 { color: #34a853; margin-top: 30px; border-left: 4px solid #34a853; padding-left: 12px; }
+h3 { color: #ea4335; margin-top: 20px; }
+.section { background: white; border-radius: 8px; padding: 20px; margin: 20px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+.code-block { background: #f8f9fa; border-left: 3px solid #1a73e8; padding: 12px; margin: 10px 0; font-family: "Courier New", monospace; font-size: 13px; overflow-x: auto; }
+.path { background: #fff3cd; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 12px; }
+.tree { font-family: monospace; background: #f5f5f5; padding: 12px; border-radius: 4px; font-size: 12px; line-height: 1.5; overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+th { background: #f0f0f0; font-weight: 600; }
+.interface-card { background: #e3f2fd; border: 1px solid #1a73e8; border-radius: 4px; padding: 15px; margin: 10px 0; }
+.note { background: #f3e5f5; border-left: 3px solid #7b1fa2; padding: 12px; margin: 10px 0; }
+</style>
+</head>
+<body>
+<h1>📚 AI Native System 完整探索报告</h1>
+
+<div class="section">
+<h2>1. 目录结构概览</h2>
+<p><strong>位置：</strong> <span class="path">D:\My\StudyAthena\scripts\ai_native_system</span></p>
+<div class="tree">
+ai_native_system/
+├── main.py                    # 统一CLI入口
+├── gui.py                     # GUI界面
+├── accounts.json              # 账号配置
+├── engine/                    # 核心引擎
+│   ├── llm.py                # LLM接口层
+│   ├── llm_provider.py       # LLM提供者核心
+│   ├── chatgpt_bot.py        # ChatGPT自动化
+│   ├── deepseek_bot.py       # DeepSeek自动化
+│   ├── pipeline.py           # 流水线核心
+│   ├── memory.py             # 记忆管理
+│   ├── progress.py           # 进度追踪
+│   ├── prompt_renderer.py    # 模板渲染
+│   └── ...
+├── books/                    # 书籍定义
+│   ├── ai_native_bible/      # 40章 × 6Stage
+│   │   ├── config.json
+│   │   ├── book_spec.md
+│   │   └── prompts/（s1-s6）
+│   ├── interview_bible/
+│   ├── word_memory/
+│   └── _template/
+├── output/                   # 生成结果
+│   ├── ai_native_bible/
+│   │   ├── ch00_s1.md ~ ch28_s6.md
+│   │   ├── progress.json
+│   │   └── memory.md
+│   └── ...
+└── progress/                 # 工作区
+</div>
+</div>
+
+<div class="section">
+<h2>2. 如何调用大模型</h2>
+<h3>2.1 标准调用示例</h3>
+<div class="code-block">
+from engine.llm import create_llm
+
+# 创建LLM实例
+llm = create_llm("deepseek", account="1")
+
+# 发送消息
+answer = llm.chat([{"role": "user", "content": "你好"}])
+print(answer)
+
+# 关闭资源
+llm.close()
+</div>
+
+<h3>2.2 create_llm 参数</h3>
+<table>
+<tr><th>参数</th><th>可选值</th><th>说明</th></tr>
+<tr><td>provider</td><td>"chatgpt"/"deepseek"/"both"</td><td>LLM提供商</td></tr>
+<tr><td>account</td><td>"1" ~ "6"</td><td>账号编号</td></tr>
+</table>
+
+<h3>2.3 BaseLLM 接口</h3>
+<div class="interface-card">
+<strong>核心方法：</strong><br>
+<ul>
+<li><code>chat(messages: list[dict]) → str</code> - 同步调用，返回完整文本</li>
+<li><code>chat_response(messages) → LLMResponse</code> - 返回结构化对象</li>
+<li><code>stream_chat(messages) → Generator[str]</code> - 流式输出</li>
+<li><code>async_chat(messages)</code> - 异步调用</li>
+<li><code>health_check() → bool</code> - 检查浏览器状态</li>
+<li><code>close()</code> - 释放资源</li>
+</ul>
+</div>
+</div>
+
+<div class="section">
+<h2>3. 可用的模型</h2>
+<h3>3.1 支持的提供商</h3>
+<table>
+<tr><th>提供商</th><th>实现类</th><th>网址</th><th>推荐场景</th></tr>
+<tr><td><strong>ChatGPT</strong></td><td>ChatGPTBrowserLLM</td><td>chatgpt.com</td><td>高质量输出</td></tr>
+<tr><td><strong>DeepSeek</strong></td><td>DeepSeekBrowserLLM</td><td>chat.deepseek.com</td><td>成本低，响应快</td></tr>
+<tr><td><strong>并行</strong></td><td>LLMRouter</td><td>两个同时</td><td>取最快结果</td></tr>
+</table>
+
+<h3>3.2 当前账号（6个）</h3>
+<div class="code-block">
+1. zhaoyx
+2. lucyzhaoaa
+3. studyathena888
+4. LucyQQ
+5. lucy82910
+6. globalenglish
+</div>
+
+<h3>3.3 模型选择</h3>
+<p>ChatGPT 和 DeepSeek 的具体模型由网页自动选择（无法手动指定），系统通过 Playwright 自动化调用：</p>
+<ul>
+<li><strong>ChatGPT</strong>: GPT-4o / GPT-4 Turbo / GPT-3.5 Turbo</li>
+<li><strong>DeepSeek</strong>: V3 / V2.5 / V2</li>
+</ul>
+</div>
+
+<div class="section">
+<h2>4. 关键概念</h2>
+
+<h3>4.1 Pipeline（流水线）</h3>
+<p>每本书包含多个 <strong>Stage（阶段）</strong>，每个Stage是一轮独立的LLM处理：</p>
+<table>
+<tr><th>Stage</th><th>名称</th><th>提供商</th><th>职责</th></tr>
+<tr><td>S1</td><td>施工图</td><td>DeepSeek</td><td>规划章节结构</td></tr>
+<tr><td>S2</td><td>草稿前半</td><td>DeepSeek</td><td>写前半部分</td></tr>
+<tr><td>S3</td><td>草稿后半</td><td>DeepSeek</td><td>写后半部分</td></tr>
+<tr><td>S4</td><td>技术审稿</td><td>DeepSeek</td><td>检查准确性</td></tr>
+<tr><td>S5</td><td>修订</td><td>ChatGPT</td><td>改进表达</td></tr>
+<tr><td>S6</td><td>终审</td><td>ChatGPT</td><td>最终把关</td></tr>
+</table>
+
+<h3>4.2 提示词模板</h3>
+<p>位置：<span class="path">books/{书名}/prompts/s1.md ~ s6.md</span></p>
+<p>支持占位符（会自动注入变量）：</p>
+<div class="code-block">
+{{chapter}}        - 章号
+{{chapter_title}}  - 章标题
+{{book_title}}     - 书名
+{{protagonist}}    - 主角
+{{memory}}         - 前几章记忆
+{{prev_stage_N}}   - 前序Stage内容
+{{book_spec}}      - 写作规范
+{{任意字段}}       - config.json中的字段
+</div>
+
+<h3>4.3 记忆系统</h3>
+<p>每章完成后，系统用LLM提取关键信息，注入到后续章节的Prompt中：</p>
+<ul>
+<li>主角状态变化</li>
+<li>关键术语定义</li>
+<li>重要案例</li>
+<li>导师金句</li>
+<li>技术连续性提示</li>
+</ul>
+
+<h3>4.4 进度追踪</h3>
+<p>通过 <span class="path">progress.json</span> 精确记录每章每Stage的完成状态，支持断点续跑。</p>
+</div>
+
+<div class="section">
+<h2>5. CLI 命令</h2>
+<div class="code-block">
+# 列出所有书
+python main.py list
+
+# 查看进度
+python main.py status ai_native_bible
+
+# 运行书籍
+python main.py run ai_native_bible                      # 全部
+python main.py run ai_native_bible --from 5             # 从第5章
+python main.py run ai_native_bible --chapter 3          # 第3章
+python main.py run ai_native_bible --chapter 3 --stage 2 # 第3章第2个Stage
+python main.py run ai_native_bible --provider deepseek  # 指定提供商
+python main.py run ai_native_bible --account 2          # 指定账号
+
+# 重建前端JSON
+python main.py build ai_native_bible    # 单个书
+python main.py build all                # 全部书
+
+# 添加新人注释
+python main.py glossary ai_native_bible --account 3
+</div>
+</div>
+
+<div class="section">
+<h2>6. 架构亮点</h2>
+
+<div class="note">
+<strong>✅ 分层解耦</strong><br>
+LLM接口（llm.py）与网页自动化（chatgpt_bot.py/deepseek_bot.py）完全解耦<br><br>
+
+<strong>✅ 多模型支持</strong><br>
+无缝支持ChatGPT/DeepSeek，单行代码切换<br><br>
+
+<strong>✅ 智能账号轮换</strong><br>
+6个账号自动降级，速率限制/额度耗尽自动切换<br><br>
+
+<strong>✅ 记忆一致性</strong><br>
+前几章摘要自动注入Prompt，保证跨章内容连贯<br><br>
+
+<strong>✅ 断点续跑</strong><br>
+progress.json精确追踪，支持从任意章节/Stage继续<br><br>
+
+<strong>✅ 自动集成</strong><br>
+完成后自动git commit+push，无需手动管理<br><br>
+
+<strong>✅ OpenAI兼容API</strong><br>
+可作为HTTP服务被其他系统调用（serve_openai_api）
+</div>
+</div>
+
+<div class="section">
+<h2>7. 当前进度</h2>
+<table>
+<tr><th>书籍</th><th>进度</th><th>备注</th></tr>
+<tr><td><strong>ai_native_bible</strong></td><td>28/40章</td><td>正在生产中</td></tr>
+<tr><td><strong>interview_bible</strong></td><td>初期</td><td>刚开始</td></tr>
+<tr><td><strong>word_memory</strong></td><td>初期</td><td>词汇书</td></tr>
+</table>
+</div>
+
+</body>
+</html>

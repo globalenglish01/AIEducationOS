@@ -1,0 +1,149 @@
+id: "KN-C-000046"
+type: Concept
+name: "LLM Observability（LLM 可观测性）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - observability
+  - monitoring
+  - production
+
+aliases:
+  - "AI 可观测性"
+  - "LLM Monitoring"
+  - "AI Ops"
+
+summary: "持续监控 LLM 应用在生产环境的质量、性能、成本和安全状态，使 AI 系统像传统软件一样可运维。"
+
+definition: |
+  LLM Observability 是将软件工程中的可观测性（Observability）理念应用于 LLM 系统的实践：
+  通过 Tracing（追踪）、Metrics（指标）、Logging（日志）三大支柱，
+  持续监控 LLM 应用在生产环境中的行为，
+  使工程师能够回答：
+  - "现在系统运行正常吗？"（实时监控）
+  - "为什么这次回答质量差？"（根因分析）
+  - "昨天 API 费用为什么突然增加了 50%？"（成本追踪）
+  - "这个 Prompt 修改有没有让系统变好？"（A/B 评估）
+
+why: |
+  传统软件的可观测性关注：延迟、错误率、吞吐量
+  LLM 系统额外需要关注：
+  - 输出质量（Faithfulness、Relevancy）：代码的 "正确" 是确定的，LLM 的 "好" 不确定
+  - Token 成本：每次调用都有 API 费用，不监控就会有意外账单
+  - 幻觉率：LLM 可能输出听起来对但实际错误的内容
+  - Prompt 版本漂移：Prompt 修改后质量是否退化？
+
+  没有 LLM Observability，生产系统是"黑盒"：问题只有用户报告后才能发现。
+
+three_pillars:
+  tracing:
+    name: "Tracing（追踪）"
+    what: "记录每次任务执行的完整调用链"
+    answers: "这次任务经历了哪些步骤？每步耗时多少？哪步出错？"
+    tools: "LangSmith, LangFuse, OpenTelemetry"
+
+  metrics:
+    name: "Metrics（指标）"
+    what: "持续收集和聚合系统运行的数值指标"
+    key_metrics:
+      quality:
+        - "Faithfulness（忠实度）：LLM 输出有没有幻觉"
+        - "Answer Relevancy：回答是否切题"
+        - "User Satisfaction（点赞率）：用户是否满意"
+      performance:
+        - "Latency（延迟）：P50/P95/P99 响应时间"
+        - "TTFT（Time to First Token）：首 Token 延迟"
+        - "Throughput（吞吐量）：每秒处理请求数"
+      cost:
+        - "Token 消耗：输入/输出 Token 数量"
+        - "API 成本：按模型、用户、时间统计"
+        - "Cost per Query：每次查询的成本"
+      reliability:
+        - "Error Rate（错误率）：LLM 调用失败率"
+        - "Retry Rate（重试率）：因超时/限流触发重试的比例"
+        - "Context Overflow Rate：Context Window 超出率"
+    tools: "Prometheus + Grafana, DataDog, LangFuse Dashboard"
+
+  logging:
+    name: "Logging（日志）"
+    what: "记录系统事件、错误、异常和审计信息"
+    answers: "发生了什么事件？错误的详细信息是什么？"
+    tools: "ELK Stack, Grafana Loki, 结构化日志（JSON）"
+
+monitoring_dashboard: |
+  生产环境 LLM 系统的核心监控仪表盘应包含：
+
+  === 实时状态 ===
+  - 请求量（QPS）：当前每秒请求数
+  - 错误率：过去 5 分钟的错误率
+  - P95 延迟：95 百分位响应时间
+  - 今日 API 成本：已消耗的 API 费用
+
+  === 质量趋势（每日/周）===
+  - Faithfulness 趋势：是否在下降？
+  - 用户满意度趋势：点赞率变化
+  - Eval 分数趋势：Regression Testing 结果
+
+  === 成本分析 ===
+  - 按模型分：哪个模型消耗最多
+  - 按用户分：谁在消耗最多 Token
+  - 按功能分：哪个功能最贵
+
+  === 告警 ===
+  - 错误率 > 5%：告警
+  - P95 延迟 > 10s：告警
+  - Faithfulness < 0.8：告警
+  - 每日成本超预算 20%：告警
+
+alerting_strategy:
+  - metric: "错误率"
+    threshold: "> 5%（5分钟窗口）"
+    action: "PagerDuty 告警，On-call 工程师处理"
+  - metric: "P95 延迟"
+    threshold: "> 10 秒"
+    action: "Slack 告警，调查是否有大型 Prompt 或慢工具"
+  - metric: "Faithfulness"
+    threshold: "< 0.80（小时平均）"
+    action: "Slack 告警，检查是否有 Prompt 变更或知识库问题"
+  - metric: "日成本"
+    threshold: "> 预算 120%"
+    action: "邮件告警 + 自动限速"
+
+production_checklist: |
+  LLM 系统生产可观测性检查清单：
+  □ Tracing：所有 LLM 调用、工具调用、检索操作都有 Trace 记录
+  □ 成本追踪：每次 LLM 调用记录 Token 数量和费用
+  □ 质量指标：Faithfulness、Answer Relevancy 定期评估
+  □ 错误监控：LLM 调用失败、超时、限流有告警
+  □ 延迟监控：P50/P95/P99 延迟有趋势图
+  □ 用户反馈：有收集用户点赞/踩的机制
+  □ 成本告警：日/月费用超预算有通知
+  □ Prompt 版本：Prompt 变更有版本记录，可回滚
+
+relationships:
+  uses:
+    - id: "KN-C-000044"
+      note: "Tracing 是 LLM Observability 的核心技术支柱"
+    - id: "KN-C-000047"
+      note: "Structured Logging 是 LLM Observability 的日志支柱"
+  supports:
+    - id: "KN-C-000039"
+      note: "Observability 数据支撑 Regression Testing 的质量趋势分析"
+
+interview_points:
+  - "LLM Observability 和传统软件可观测性有什么区别？"
+  - "LLM 系统的三大观测支柱是什么？"
+  - "LLM 系统有哪些关键监控指标？质量/性能/成本各举2个"
+  - "如何设计 LLM 系统的告警策略？"
+  - "生产环境 LLM 系统上线前，Observability 方面要检查哪些？（L2+ 考察）"
+
+exam_points:
+  - "三大支柱：Tracing（追踪）/ Metrics（指标）/ Logging（日志）"
+  - "LLM 特有指标：输出质量（Faithfulness）/ Token 成本 / 幻觉率"
+  - "告警必设：错误率 / 延迟 / 质量指标 / 成本超预算"
+  - "工具：LangSmith / LangFuse / OpenTelemetry + Prometheus + Grafana"
+
+one_liner: "LLM Observability = 给 AI 装监控摄像头，实时掌握质量/性能/成本，从'黑盒运行'到'透明可控'。"
+difficulty: advanced

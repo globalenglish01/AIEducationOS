@@ -1,0 +1,165 @@
+id: "KN-C-000039"
+type: Practice
+name: "Regression Testing（回归测试）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - evaluation
+  - regression-testing
+  - ci-cd
+  - quality
+
+aliases:
+  - "回归测试"
+  - "Eval Regression"
+  - "Quality Gate"
+
+summary: "在每次系统变更后自动运行 Eval Dataset，对比历史基线，检测质量回退——AI 系统的 CI/CD 质量门禁。"
+
+definition: |
+  AI 系统的 Regression Testing（回归测试）是：
+  在每次 Prompt 修改、模型升级、RAG 配置变更、代码更新之后，
+  自动在标准 Eval Dataset 上运行评估，
+  将结果与历史基线（Baseline）对比，
+  如果关键指标下降超过阈值则阻断变更合并（Quality Gate）。
+  这是将"软件工程中的回归测试"移植到 AI 系统的工程实践。
+
+why: |
+  AI 系统的特殊风险：
+  - Prompt 改动 A 处改善了，可能导致 B 类问题质量下降（隐性回退）
+  - 模型升级并不总是全面提升（某些任务反而变差）
+  - RAG 知识库更新引入了错误信息，Faithfulness 下降
+  - 上述问题在上线后才被用户发现，影响范围大、修复成本高
+
+  Regression Testing 的价值：
+  - 在合并代码/上线之前就发现质量回退
+  - 提供客观数字依据，而不是"感觉变差了"
+  - 建立对系统行为的信心：改动 X 不影响场景 Y
+
+mental_model: |
+  AI Regression Testing = 传统软件的 CI 单元测试
+
+  软件工程：
+  git push → CI 跑单元测试 → 测试失败 → 阻止合并 PR
+
+  AI 系统：
+  Prompt 修改 → CI 跑 LLM-as-Judge 评估 → 质量指标下降 → 阻止部署
+
+  区别：
+  - 软件测试：确定性（代码逻辑），pass/fail 二元
+  - AI 回归测试：统计性（LLM 有随机性），使用阈值（如 > 0.85）
+
+how_it_works: |
+  AI Regression Testing 流程：
+
+  1. 建立 Baseline（基线）
+     - 在当前生产版本上运行 Eval Dataset
+     - 记录各指标分数：{faithfulness: 0.92, answer_relevancy: 0.88, ...}
+     - 存入版本控制（作为对比基准）
+
+  2. 开发阶段：变更 Prompt/模型/RAG 配置
+
+  3. CI Pipeline 自动评估（GitHub Actions 示例）
+     # .github/workflows/eval.yml
+     on: [pull_request]
+     jobs:
+       eval:
+         steps:
+           - run: python eval/run_eval.py --dataset eval/datasets/v1.1/
+           - run: python eval/compare_baseline.py --threshold 0.05
+
+  4. 与 Baseline 对比
+     def compare_baseline(current_results, baseline, threshold=0.05):
+         regressions = []
+         for metric, current_score in current_results.items():
+             baseline_score = baseline[metric]
+             if current_score < baseline_score - threshold:
+                 regressions.append({
+                     "metric": metric,
+                     "baseline": baseline_score,
+                     "current": current_score,
+                     "drop": baseline_score - current_score
+                 })
+         return regressions
+
+  5. Quality Gate 决策
+     - regressions 为空 → 允许合并
+     - 发现回退 → 阻止合并，输出回退报告，要求开发者修复
+
+quality_gate_configuration:
+  thresholds:
+    absolute: "指标分数绝对值下降超过阈值（如 faithfulness 下降 > 0.05）则阻断"
+    relative: "指标分数相对下降超过百分比（如下降 > 5%）则阻断"
+  severity_levels:
+    critical: "核心指标（faithfulness、accuracy）下降 > 0.05 → 阻止上线"
+    warning: "次要指标下降 0.02-0.05 → 需要 Review 但不阻止"
+    info: "指标变化 < 0.02 → 记录但不干预"
+
+evaluation_scope:
+  unit_eval: "单个 Prompt 变更：只跑受影响的子集（快，1-2 分钟）"
+  integration_eval: "完整流程变更：跑全量 Eval Dataset（慢，10-30 分钟）"
+  shadow_eval: "A/B 测试：新旧版本并行评估，统计显著性分析"
+
+result_tracking: |
+  评估结果必须持久化存档：
+  eval/results/
+  ├── 2026-06-19_pr-123_prompt-v3.json    # PR 123 的评估结果
+  ├── 2026-06-18_baseline_v1.1.json       # Baseline 记录
+  └── history.csv                          # 历史趋势数据
+
+  可视化趋势（可接入 LangSmith 或自建 Dashboard）：
+  - 纵轴：各指标分数
+  - 横轴：时间/版本
+  - 一眼看出质量在哪个版本开始下滑
+
+integration_tools:
+  - tool: "LangSmith"
+    role: "Prompt 版本管理 + Eval 结果追踪 + 趋势可视化"
+  - tool: "GitHub Actions"
+    role: "在 PR 阶段自动触发 Eval，Quality Gate 实现"
+  - tool: "MLflow"
+    role: "Eval 结果存储和对比"
+  - tool: "自建脚本 + JSON 存档"
+    role: "最轻量的方案，不依赖外部服务"
+
+best_practices:
+  - "Baseline 在发布新版本时更新：不要一直用很久之前的 Baseline（期望标准应该随产品成熟提升）"
+  - "快速 Eval（子集）用于 PR 阶段，完整 Eval 用于上线前 Release Gate"
+  - "分场景分析：总体分数掩盖场景差异，要看每个场景类型的分数变化"
+  - "Regression Testing 的结果报告发到 PR Comments，让 Reviewer 能看到评估结果"
+
+anti_patterns:
+  - pattern: "阈值设置过于宽松（如允许下降 20%）"
+    consequence: "每次变更都能通过，回归测试形同虚设，无法发现真正的质量问题"
+  - pattern: "只在上线前跑一次全量 Eval"
+    consequence: "PR 合并后才发现问题，定位困难（哪个 PR 引入了回退？）"
+  - pattern: "Eval 结果不存档"
+    consequence: "无法追踪历史趋势，无法比较不同时间点的质量变化"
+
+relationships:
+  uses:
+    - id: "KN-C-000036"
+      note: "Regression Testing 用 LLM-as-Judge 计算各轮次的评估分数"
+    - id: "KN-C-000038"
+      note: "Eval Dataset 是 Regression Testing 的测试用例来源"
+  related_concepts:
+    - id: "KN-C-000037"
+      note: "RAGAS 是 RAG 系统 Regression Testing 的专用评估框架"
+
+interview_points:
+  - "为什么 AI 系统需要 Regression Testing？和传统软件测试有什么相似之处？"
+  - "AI Regression Testing 和软件单元测试的核心区别是什么？"
+  - "Quality Gate 的阈值应该如何设置？（绝对值 vs 相对值）"
+  - "如何将 Regression Testing 集成到 GitHub Actions CI 流水线？（L2+ 考察）"
+  - "如何处理 LLM 输出的随机性对 Regression Testing 结果的影响？（L3+ 考察）"
+
+exam_points:
+  - "AI Regression Testing = 每次变更后自动跑 Eval，对比 Baseline，阻断质量回退"
+  - "Quality Gate：指标下降超阈值 → 阻止合并/上线"
+  - "区别：软件测试是确定性 pass/fail；AI 回归测试是统计性阈值比较"
+  - "结果必须存档（JSON/CSV），支持历史趋势分析"
+
+one_liner: "Regression Testing = AI 的 CI 质量门禁，每次变更后自动评估，指标下降超阈值就阻断——在上线前发现问题。"
+difficulty: advanced

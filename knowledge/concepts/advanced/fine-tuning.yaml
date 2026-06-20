@@ -1,0 +1,175 @@
+id: "KN-C-000054"
+type: Concept
+name: "Fine-tuning（微调）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L3-L4"
+tags:
+  - advanced
+  - fine-tuning
+  - training
+  - model
+
+aliases:
+  - "微调"
+  - "SFT（Supervised Fine-Tuning）"
+  - "模型微调"
+  - "PEFT"
+
+summary: "在预训练模型基础上，用领域数据继续训练，使模型在特定任务/风格/知识上表现更好——但不是 RAG 的替代，而是互补。"
+
+definition: |
+  Fine-tuning（微调）是在一个已预训练的 LLM 基础上，
+  使用特定领域或任务的数据集继续训练，
+  调整模型参数以使其在该特定场景下表现更好的技术。
+  微调改变的是模型权重（永久性学习），
+  而 RAG 改变的是每次推理时的上下文（即时注入知识）。
+
+why: |
+  Prompt Engineering + RAG 的局限：
+  - 格式一致性差：通过 Prompt 要求特定输出格式，LLM 时常不遵守
+  - 风格迁移困难：要 LLM 完全模仿某种特定写作风格，Prompt 效果有限
+  - 专业术语理解：垂直领域的专业术语，通用 LLM 理解偏差
+  - 推理效率：不用每次在 Prompt 中携带大量背景指令，减少 Token 消耗
+
+  Fine-tuning 适用场景：
+  - 需要特定输出格式（JSON Schema、特定模板）
+  - 需要特定风格（品牌语气、专业口吻）
+  - 频繁且固定的领域任务（医疗编码、法律文件分类）
+  - 想要更小、更便宜的模型达到大模型 90% 的效果（蒸馏思路）
+
+mental_model: |
+  Fine-tuning vs RAG vs Prompt Engineering 三者类比：
+
+  Prompt Engineering = 给员工详细工作指南
+  - 优点：灵活，随时可改
+  - 缺点：每次都要带着指南（Token 成本），员工可能理解偏差
+
+  RAG = 给员工一个可以随时查阅的知识库
+  - 优点：知识可以实时更新
+  - 缺点：需要检索过程，知识库质量决定上限
+
+  Fine-tuning = 专项培训员工
+  - 优点：技能内化，反应快，不用每次带教材
+  - 缺点：培训成本高，技能更新需要重新培训
+
+fine_tuning_types:
+  full_fine_tuning:
+    name: "全量微调（Full Fine-tuning）"
+    description: "更新模型的所有参数"
+    pros: "效果最好，模型完全适应新任务"
+    cons: "计算成本极高（需要与预训练相当的 GPU），存储巨大（需保存完整参数副本）"
+    use_when: "大规模领域适应，有充足计算资源"
+
+  lora:
+    name: "LoRA（Low-Rank Adaptation）"
+    description: "只训练少量适配矩阵，冻结原始参数"
+    pros: "训练参数量减少 10000 倍，GPU 需求大幅降低，效果接近全量微调"
+    cons: "不适合需要大幅改变模型行为的场景"
+    use_when: "大多数生产微调场景的首选"
+    how_it_works: |
+      # LoRA 原理：在每个 Transformer 层的权重矩阵 W 旁边添加低秩矩阵 ΔW
+      # W' = W + ΔW = W + A×B（A、B 是低秩矩阵，参数量 << W 的参数量）
+      # 训练时只更新 A 和 B，W 保持冻结
+
+      from peft import LoraConfig, get_peft_model
+
+      config = LoraConfig(
+          r=16,              # 秩（rank），越小参数越少，越大效果越好
+          lora_alpha=32,     # 缩放因子
+          target_modules=["q_proj", "v_proj"],  # 在哪些层应用 LoRA
+          lora_dropout=0.1
+      )
+      model = get_peft_model(base_model, config)
+      # 可训练参数：< 1% 的原始参数量
+
+  qlora:
+    name: "QLoRA（量化 LoRA）"
+    description: "在 4-bit 量化的模型上做 LoRA，进一步减少显存需求"
+    pros: "单张消费级 GPU（24GB）可以微调 70B 参数的模型"
+    cons: "训练速度比 LoRA 慢约 30%"
+    use_when: "GPU 资源有限，需要微调大模型"
+
+data_requirements: |
+  Fine-tuning 数据集要求：
+
+  数量：
+  - 任务适配（格式/风格）：500-2000 条高质量样本
+  - 领域知识注入：5000-50000 条
+  - 大规模行为改变：100000+ 条
+
+  格式（SFT 监督微调）：
+  [
+    {
+      "messages": [
+        {"role": "system", "content": "你是一个医疗编码专家"},
+        {"role": "user", "content": "患者主诉：右膝疼痛，X光显示软骨磨损"},
+        {"role": "assistant", "content": "ICD-10 编码：M17.11（右膝原发性骨关节病）"}
+      ]
+    },
+    ...
+  ]
+
+  质量比数量更重要：
+  - 100 条高质量数据 > 10000 条低质量数据
+  - 数据分布要与生产场景一致
+  - 避免有偏见、错误的训练样本
+
+fine_tuning_vs_rag: |
+  Fine-tuning 和 RAG 不是二选一，应该根据场景选择或组合：
+
+  | 维度 | Fine-tuning | RAG |
+  |------|------------|-----|
+  | 知识更新 | 慢（需重新训练）| 快（更新知识库即可）|
+  | 实时知识 | ❌ 不支持 | ✅ 支持 |
+  | 私有知识 | ✅（训练后内化）| ✅（检索注入）|
+  | 风格/格式 | ✅ 效果最好 | ❌ 效果有限 |
+  | 成本 | 高（训练 + 推理）| 低（仅推理 + 检索）|
+  | 幻觉控制 | 较弱（模型可能仍幻觉）| 较强（有参考文档）|
+
+  最佳实践：RAG + Fine-tuning 结合
+  - Fine-tuning：训练模型的"风格"和"格式"
+  - RAG：提供最新的领域知识
+  例：微调医疗助手的对话风格，用 RAG 注入最新的医疗指南
+
+when_not_to_fine_tune: |
+  以下情况不应该首选 Fine-tuning：
+  - 知识库需要频繁更新（用 RAG）
+  - 问题能通过更好的 Prompt 解决（先穷尽 Prompt Engineering）
+  - 数据量不足（< 200 条，效果不稳定）
+  - 没有 GPU 资源（用 API Fine-tuning 服务替代，如 OpenAI Fine-tuning API）
+  - 不确定问题根因（先分析是模型问题还是数据/Prompt 问题）
+
+production_considerations: |
+  Fine-tuning 生产部署注意事项：
+  - 微调后必须做 Evaluation：对比微调前后在 Eval Dataset 上的表现
+  - 微调可能导致"灾难性遗忘"：模型在目标任务上表现提升，但通用能力下降
+  - 保留基础模型：微调模型和基础模型都要保存，便于回滚
+  - 版本管理：每次微调都有版本号，记录训练数据版本和超参数
+
+relationships:
+  alternative_to:
+    - id: "KN-C-000033"
+      note: "Fine-tuning 和 RAG 不是竞争关系，而是互补——Fine-tuning 改模型行为，RAG 注入实时知识"
+  related_to:
+    - id: "KN-C-000038"
+      note: "Fine-tuning 后必须在 Eval Dataset 上做 Regression Testing"
+
+interview_points:
+  - "Fine-tuning 和 RAG 的区别是什么？什么场景下用哪个？"
+  - "LoRA 的原理是什么？为什么它比全量微调更实用？"
+  - "Fine-tuning 的数据集应该如何准备？数量和质量哪个更重要？"
+  - "什么是灾难性遗忘？如何缓解？"
+  - "Fine-tuning 后如何评估效果？（L3+ 考察）"
+  - "Fine-tuning + RAG 的组合策略是什么？（L3+ 考察）"
+
+exam_points:
+  - "Fine-tuning = 在预训练模型上继续训练，更新模型参数（永久性学习）"
+  - "LoRA：只训练低秩适配矩阵，参数量 < 1%，生产微调首选"
+  - "适用场景：格式一致性 / 特定风格 / 专业术语 / 小模型替代大模型"
+  - "不适用：知识频繁更新（用RAG）/ 数据不足（< 200条）/ Prompt 能解决的问题"
+  - "Fine-tuning vs RAG：改行为用微调，注入知识用RAG，最佳实践是结合使用"
+
+one_liner: "Fine-tuning = 专项培训模型，让它记住特定格式/风格/知识——改变的是模型本身，不是每次对话的上下文。"
+difficulty: expert

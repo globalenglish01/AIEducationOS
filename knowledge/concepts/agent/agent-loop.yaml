@@ -1,0 +1,156 @@
+id: "KN-C-000021"
+type: Concept
+name: "Agent Loop"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L1-L2"
+tags:
+  - agent
+  - architecture
+  - runtime
+
+aliases:
+  - "Agent 运行循环"
+  - "Agentic Loop"
+  - "Agent Runtime"
+
+summary: "Agent 的核心执行引擎：持续循环执行 LLM 决策→工具调用→状态更新，直到任务完成或终止。"
+
+definition: |
+  Agent Loop 是驱动 Agent 运行的核心循环机制。
+  每次迭代：LLM 基于当前状态决策（生成 Thought 和 Action），
+  系统执行 Action（调用工具），将结果（Observation）加入状态，
+  LLM 判断是否完成，若未完成则进入下一次迭代。
+  Agent Loop 就是 ReAct 模式的工程化实现。
+
+why: |
+  单次 LLM 调用是无状态的：请求进来，响应出去，结束。
+  复杂任务需要多步骤：搜索→分析→验证→修正→再验证……
+  Agent Loop 提供了"状态保持 + 多步迭代"的运行框架，
+  让 LLM 能够像人类工程师一样，逐步推进直到完成目标。
+
+mental_model: |
+  Agent Loop = 工程师解决问题的工作流
+  1. 看看当前状态（State）
+  2. 想想下一步该做什么（Thought）
+  3. 执行一个操作（Action = 调用工具）
+  4. 看看结果（Observation）
+  5. 判断：完成了吗？→ 是：结束 / 否：回到第1步
+
+  安全版 Agent Loop（有限制）：
+  1-5 步同上，但额外有：
+  - 步骤计数器（最多 N 次）
+  - 超时计时器（最多 T 秒）
+  - 错误计数器（连续失败 K 次自动停止）
+
+how_it_works: |
+  Agent Loop 工程实现（Python 伪代码）：
+
+  def run_agent(task: str, tools: list, max_iter: int = 20) -> str:
+      state = AgentState(task=task, history=[], iteration=0)
+
+      while state.iteration < max_iter:
+          # 1. LLM 决策：基于当前状态生成 Thought + Action
+          llm_response = llm.chat(build_prompt(state))
+
+          # 2. 解析 LLM 输出
+          thought, action = parse_react_output(llm_response)
+          state.history.append({"thought": thought, "action": action})
+
+          # 3. 判断是否完成
+          if action.type == "FINISH":
+              return action.result
+
+          # 4. 执行工具
+          observation = tools[action.name].execute(action.params)
+          state.history.append({"observation": observation})
+          state.iteration += 1
+
+      # 超出最大迭代次数
+      raise AgentMaxIterationError(f"达到最大迭代次数 {max_iter}，任务未完成")
+
+  关键设计点：
+  - AgentState 贯穿整个 Loop，记录所有历史决策和观察
+  - Checkpoint：每次迭代后持久化 state，支持断点续跑
+  - timeout 在 Loop 外层控制：signal.alarm() 或 asyncio.wait_for()
+
+state_management:
+  description: "Agent State 是 Agent Loop 的核心数据结构"
+  fields:
+    - name: "task"
+      description: "原始任务目标，全程不变"
+    - name: "history"
+      description: "所有 Thought/Action/Observation 的历史记录"
+    - name: "iteration"
+      description: "当前迭代次数"
+    - name: "context"
+      description: "当前上下文（可能是 history 的摘要，避免超出 Context Window）"
+    - name: "checkpoint_id"
+      description: "最近一次 Checkpoint 的 ID，用于恢复"
+
+termination_conditions:
+  - condition: "LLM 输出 FINISH 动作"
+    description: "正常完成：LLM 判断任务已完成"
+  - condition: "达到 max_iterations"
+    description: "超时保护：防止无限循环"
+  - condition: "执行超时（wall-clock timeout）"
+    description: "防止单步工具调用阻塞整个 Loop"
+  - condition: "连续失败超过阈值"
+    description: "错误保护：如果工具连续失败 3 次，自动停止"
+  - condition: "外部中断信号"
+    description: "用户主动终止、系统信号、Human-in-the-Loop 拒绝"
+
+checkpoint_and_resume: |
+  生产环境的 Agent Loop 必须支持 Checkpoint（检查点）：
+  - 每次迭代后将 AgentState 持久化到 DB 或文件系统
+  - 如果 Agent 因崩溃、超时等原因中断，从最近 Checkpoint 恢复
+  - LangGraph 的 Checkpointer（MemorySaver/SqliteSaver）实现了这个机制
+
+  不支持 Checkpoint 的 Agent Loop 的问题：
+  - 任务执行到一半崩溃 → 所有进度丢失，必须重头开始
+  - 高成本任务（多次 LLM 调用）浪费极大
+
+core_principles:
+  - "有限循环：必须设置 max_iterations 和 timeout，无限循环是 Agent 最常见的故障模式"
+  - "状态不可变追加：AgentState 只追加，不修改历史——便于调试和审计"
+  - "Checkpoint 持久化：生产级 Agent Loop 必须在每次迭代后保存状态"
+  - "Observation 必须完整：工具返回结果必须完整加入状态，截断会导致 LLM 决策错误"
+
+anti_patterns:
+  - pattern: "不设置 max_iterations"
+    consequence: "Agent 陷入循环（如工具总是失败但一直重试），无限消耗资源"
+  - pattern: "不持久化 AgentState"
+    consequence: "任何中断（网络断开、进程崩溃）都导致任务从头开始，浪费成本"
+  - pattern: "Context Window 超出时截断历史"
+    consequence: "LLM 看不到关键的历史观察，决策质量严重下降，任务无法完成"
+
+relationships:
+  is_part_of:
+    - id: "KN-C-000020"
+      note: "Agent Loop 是 Agent 的核心运行时组件"
+  implements:
+    - id: "KN-P-000004"
+      note: "Agent Loop 是 ReAct 模式的工程化实现"
+  used_by:
+    - id: "KN-C-000025"
+      note: "LangGraph 通过 StateGraph + Checkpointer 实现 Agent Loop"
+  related_concepts:
+    - id: "KN-C-000024"
+      note: "Human-in-the-Loop 是在 Agent Loop 的特定节点插入人工确认"
+
+interview_points:
+  - "Agent Loop 的终止条件有哪些？为什么每个都必要？"
+  - "AgentState 应该包含哪些字段？为什么要追加而不是覆盖历史？"
+  - "为什么生产级 Agent Loop 必须支持 Checkpoint？不支持会有什么问题？"
+  - "Context Window 超出时如何处理历史记录？（L2+ 考察）"
+  - "如何监控 Agent Loop 的健康状态？（L2+ 考察）"
+
+exam_points:
+  - "Agent Loop = ReAct 模式的工程化实现（Thought→Action→Observation→循环）"
+  - "终止条件：FINISH / max_iterations / timeout / 连续失败阈值 / 外部中断"
+  - "AgentState 贯穿整个 Loop，只追加不修改，支持审计"
+  - "Checkpoint：每次迭代后持久化状态，支持断点续跑"
+
+one_liner: "Agent Loop = ReAct 的工程实现，必须有 max_iterations + Checkpoint，否则生产不可用。"
+difficulty: intermediate

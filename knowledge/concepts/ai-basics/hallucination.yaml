@@ -1,0 +1,124 @@
+id: "KN-C-000004"
+type: Concept
+name: "Hallucination（幻觉）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - foundation
+  - llm
+  - reliability
+  - evaluation
+
+aliases:
+  - "AI 幻觉"
+  - "Confabulation"
+  - "模型幻觉"
+
+summary: "LLM 自信地生成不存在或错误内容的现象，是 AI 系统最核心的可靠性挑战。"
+
+definition: |
+  Hallucination（幻觉）是指 LLM 生成的内容在事实上不正确、
+  不存在或与上下文矛盾，但模型以极高的"自信"呈现这些内容的现象。
+  幻觉不是偶发的 bug，而是 LLM 的结构性特征——
+  因为 LLM 的目标是生成"最像真实文本"的输出，而非"最准确的事实"。
+
+why: |
+  理解幻觉是 AI Native Engineer 的必修课，因为：
+  1. 它是 RAG、Evaluation、Guardrails 等所有质量保障机制存在的根本原因
+  2. 不理解幻觉的工程师，无法设计可靠的 AI 系统
+  3. 幻觉无法被"修复"，只能被"管理"——这决定了整个系统架构的设计思路
+
+mental_model: |
+  LLM 幻觉 ≈ 一个记性很好但喜欢"补全故事"的学生
+  - 他读过大量资料，能流畅地讲任何话题
+  - 但当他不确定细节时，他不会说"我不知道"
+  - 而是凭直觉"补全"一个听起来合理的答案
+  - 你分辨不出他哪句话是真记得的，哪句是编的
+
+  更精确的类比：
+  LLM = 预测接龙机器。它预测"下一个最可能出现的Token"，
+  "最可能"不等于"最真实"——统计上合理的词语拼接，可能在事实上完全错误。
+
+how_it_works: |
+  幻觉产生的三个来源：
+  1. 训练数据噪音：训练数据本身含有错误信息，模型学会了错误
+  2. 知识截止：训练后发生的事件，模型没有数据，只能"猜"
+  3. 概率补全机制：当模型"不确定"时，仍然输出高置信度的内容，
+     因为输出"我不知道"在统计上不是高频选择
+
+  幻觉的三种类型：
+  - 事实幻觉：编造不存在的人名、论文、数据、事件
+  - 指令幻觉：忽略 Prompt 中的明确要求，按"习惯"输出
+  - 上下文幻觉：回答与提供的文档内容矛盾（RAG 场景常见）
+
+core_principles:
+  - "幻觉是 LLM 的结构性特征，不是 bug，无法被根治，只能被管理"
+  - "LLM 的输出置信度不等于事实准确度——它越自信，越需要验证"
+  - "高风险场景（医疗、法律、金融）必须有 Human-in-the-Loop 或强 Evaluation 体系"
+  - "RAG 只能减少知识性幻觉，无法消除推理性幻觉"
+
+examples:
+  - scenario: "引用幻觉"
+    description: "要求 LLM 引用论文，它给出一个听起来真实但不存在的论文标题、作者、期刊、年份"
+  - scenario: "代码幻觉"
+    description: "LLM 生成调用了不存在的 API 函数的代码，且函数名看起来完全合理"
+  - scenario: "上下文幻觉"
+    description: "RAG 场景中，LLM 忽略检索到的文档内容，用自己'记忆'中的（可能错误的）知识回答"
+
+counter_examples:
+  - "幻觉不能通过'让模型更聪明'解决——更大的模型幻觉更少，但不为零"
+  - "不能通过'告诉模型不要编造'解决——Prompt 中加'请不要幻觉'效果非常有限"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "幻觉是 LLM 概率生成机制的副产品，先理解 LLM"
+  used_by:
+    - id: "KN-C-000030"
+      note: "RAG 的核心动机之一是减少知识性幻觉"
+  related_concepts:
+    - id: "KN-C-000003"
+      note: "Context 信息不足会加重幻觉"
+
+common_misconceptions:
+  - misconception: "幻觉只在模型不确定时才出现"
+    correction: "LLM 在高度自信时同样会幻觉。它无法准确评估自己的不确定性，越流畅的表达不代表越准确。"
+  - misconception: "RAG 能解决所有幻觉"
+    correction: "RAG 只能减少'知识型幻觉'（不知道某个事实）。'推理型幻觉'（推理过程出错）和'指令型幻觉'（忽略要求）RAG 无能为力。"
+  - misconception: "更好的 Prompt 能完全避免幻觉"
+    correction: "好的 Prompt 能减少幻觉，但无法消除。Evaluation 体系才是管理幻觉的系统性手段。"
+
+best_practices:
+  - "对所有 AI 输出建立 Evaluation 体系，持续监控幻觉率"
+  - "高风险内容（引用、数字、法律条文）必须有 Human-in-the-Loop 或自动核查"
+  - "用 RAG 提供事实依据，并要求模型引用来源（'根据以上资料……'）"
+  - "设计 Faithfulness 指标（RAGAS）：检测模型输出是否忠实于提供的上下文"
+
+anti_patterns:
+  - pattern: "对 LLM 输出不加验证直接展示给用户"
+    consequence: "幻觉内容传播给用户，引发信任危机，在医疗/法律场景可能造成严重后果"
+  - pattern: "认为幻觉是偶发问题，不建立系统性应对"
+    consequence: "质量问题无法量化，无法持续改进，产品质量依赖运气"
+
+interview_points:
+  - "什么是 LLM 幻觉？为什么会产生幻觉？（考察：对 LLM 本质的理解）"
+  - "幻觉有哪几种类型？各自的成因是什么？"
+  - "RAG 如何减少幻觉？它能解决所有类型的幻觉吗？"
+  - "在生产系统中，如何系统性地管理和监控幻觉率？"
+  - "RAGAS 的 Faithfulness 指标是什么？用来检测什么类型的幻觉？"
+
+exam_points:
+  - "幻觉的本质：LLM 预测'统计上合理'的Token，不等于预测'事实上正确'的内容"
+  - "三种幻觉类型：事实幻觉、指令幻觉、上下文幻觉"
+  - "RAG 只能减少知识性幻觉，无法消除推理性幻觉"
+  - "管理幻觉的系统性手段：RAG + Evaluation + Human-in-the-Loop + Guardrails"
+  - "Faithfulness（RAGAS指标）：检测输出是否忠实于提供的上下文"
+
+one_liner: "幻觉是 LLM 的结构性缺陷——它不会说'我不知道'，只会自信地编造听起来合理的内容。"
+difficulty: beginner
+
+references:
+  - "Survey of Hallucination in NLG: Ji et al., 2023"
+  - "RAGAS Faithfulness 指标: https://docs.ragas.io/en/stable/concepts/metrics/faithfulness.html"

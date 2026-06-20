@@ -1,0 +1,205 @@
+id: "KN-C-000026"
+type: Framework
+name: "LangGraph"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - workflow
+  - langgraph
+  - framework
+  - agent
+
+aliases:
+  - "LangGraph StateGraph"
+  - "LangChain Graph"
+
+summary: "基于状态机的 Agent 编排框架，用 Node/Edge/State 构建可持久化、可中断、支持 Human-in-the-Loop 的复杂 Agent 工作流。"
+
+definition: |
+  LangGraph 是 LangChain 团队开发的 Agent 编排框架，
+  以有向图（Directed Graph）为核心抽象：
+  - Node（节点）：执行具体操作的函数（调用 LLM、调用工具、处理数据）
+  - Edge（边）：定义节点之间的执行顺序和条件转换
+  - State（状态）：贯穿整个图执行过程的共享数据结构
+  LangGraph 的核心优势：内置 Checkpointing（持久化）和 Interrupt（中断恢复），
+  使 Agent 天然支持断点续跑和 Human-in-the-Loop。
+
+why: |
+  纯代码实现复杂 Agent 工作流的问题：
+  - 控制流（if/else/loop）嵌套复杂，难以理解和维护
+  - 没有内置状态持久化，任务中断就全部重来
+  - Human-in-the-Loop 需要自己实现暂停/恢复机制
+  - 难以可视化 Agent 的执行路径
+
+  LangGraph 解决方案：
+  - 图结构使工作流可视化（节点和边清晰展示流程）
+  - StateGraph + Checkpointer = 自动持久化，支持断点续跑
+  - interrupt_before/interrupt_after = 内置 HITL 暂停机制
+  - LangSmith 集成 = 自动追踪每个节点的输入输出
+
+core_concepts:
+  state:
+    description: "贯穿整个图的共享数据结构，使用 TypedDict 或 Pydantic 定义"
+    key_feature: "每次节点执行后返回状态更新，LangGraph 自动合并到全局 State"
+    example: |
+      from typing import TypedDict, Annotated
+      from langgraph.graph.message import add_messages
+
+      class AgentState(TypedDict):
+          messages: Annotated[list, add_messages]  # add_messages 自动追加而非覆盖
+          task: str
+          context: str
+          iteration: int
+
+  node:
+    description: "图中的处理单元，是一个 Python 函数，接收 State 返回 State 更新"
+    key_feature: "节点只关心自己的输入和输出，不关心其他节点"
+    example: |
+      def researcher_node(state: AgentState) -> dict:
+          # 接收 State，处理，返回需要更新的字段
+          result = search_knowledge_base(state["task"])
+          return {"context": result}  # 只返回要更新的字段
+
+  edge:
+    description: "定义节点之间的执行顺序，分普通边（固定顺序）和条件边（根据 State 动态决定）"
+    types:
+      - type: "普通边（add_edge）"
+        description: "固定执行顺序，A 完成后一定去 B"
+        example: "graph.add_edge('researcher', 'writer')"
+      - type: "条件边（add_conditional_edges）"
+        description: "根据 State 中的数据决定下一个节点"
+        example: |
+          def route_after_review(state: AgentState) -> str:
+              if state["quality_score"] >= 95:
+                  return "publish"
+              elif state["iteration"] >= 3:
+                  return "force_publish"
+              else:
+                  return "rewrite"
+
+          graph.add_conditional_edges("reviewer", route_after_review)
+
+how_it_works: |
+  完整 LangGraph 工作流示例（RAG + 写作 Agent）：
+
+  from langgraph.graph import StateGraph, END
+  from langgraph.checkpoint.memory import MemorySaver
+
+  # 1. 定义 State
+  class WriterState(TypedDict):
+      task: str
+      context: str
+      draft: str
+      quality_score: int
+      iteration: int
+
+  # 2. 定义 Nodes
+  def research(state): ...    # 检索相关知识
+  def write(state): ...       # 生成内容
+  def review(state): ...      # 质量评审（返回 quality_score）
+
+  # 3. 定义条件转换
+  def route(state) -> str:
+      if state["quality_score"] >= 95 or state["iteration"] >= 3:
+          return END
+      return "write"  # 质量不达标，重写
+
+  # 4. 构建图
+  graph = StateGraph(WriterState)
+  graph.add_node("research", research)
+  graph.add_node("write", write)
+  graph.add_node("review", review)
+
+  graph.set_entry_point("research")
+  graph.add_edge("research", "write")
+  graph.add_edge("write", "review")
+  graph.add_conditional_edges("review", route)
+
+  # 5. 编译（加入 Checkpointer 支持断点续跑）
+  checkpointer = MemorySaver()  # 生产用 SqliteSaver 或 PostgresSaver
+  app = graph.compile(checkpointer=checkpointer)
+
+  # 6. 运行
+  config = {"configurable": {"thread_id": "task-001"}}
+  result = app.invoke({"task": "写一篇关于 RAG 的教程", "iteration": 0}, config)
+
+checkpointing: |
+  LangGraph Checkpointer 类型：
+  - MemorySaver：内存存储，进程重启后丢失（仅开发/测试用）
+  - SqliteSaver：SQLite 文件存储，单机生产可用
+  - PostgresSaver：PostgreSQL 存储，分布式生产环境
+  - RedisSaver：Redis 存储，高并发场景
+
+  断点续跑：
+  # 任务中断后，用同一个 thread_id 重新调用，自动从最近 Checkpoint 恢复
+  result = app.invoke(None, config)  # None 表示从 Checkpoint 恢复，不是新任务
+
+interrupt_for_hitl: |
+  LangGraph HITL 实现（interrupt_before）：
+
+  # 在执行危险操作的节点前自动暂停
+  app = graph.compile(
+      checkpointer=MemorySaver(),
+      interrupt_before=["execute_action"]  # 执行 action 节点前暂停
+  )
+
+  # 运行到 interrupt 点自动停止
+  state = app.invoke(initial_state, config)
+  # 此时 state 包含待确认的操作详情
+
+  # 人工审批后继续
+  app.invoke(None, config)  # 继续执行
+
+visualization: |
+  LangGraph 支持图可视化（Mermaid 格式）：
+  from IPython.display import Image
+  Image(app.get_graph().draw_mermaid_png())
+  # 输出 Agent 工作流的流程图，便于调试和文档
+
+best_practices:
+  - "State 使用 TypedDict + Annotated，字段含义清晰，支持序列化"
+  - "生产环境使用 SqliteSaver 或 PostgresSaver，不用 MemorySaver"
+  - "每个 Node 单一职责，名称动词化（research, write, review, publish）"
+  - "条件转换集中在 Edge 函数里，不在 Node 内部写 if/else 控制下一步"
+  - "接入 LangSmith 追踪每次执行的完整 Trace"
+  - "设置 recursion_limit（默认 25）防止图无限循环"
+
+anti_patterns:
+  - pattern: "State 中存储大型对象（完整文档、图片）"
+    consequence: "Checkpoint 序列化失败或性能极差；应存 ID 或路径，大对象存外部存储"
+  - pattern: "Node 内部决定下一步走哪个分支"
+    consequence: "控制流不在图结构中体现，无法可视化，难以调试"
+  - pattern: "不设置 thread_id"
+    consequence: "Checkpoint 无法区分不同任务，多用户场景下状态混乱"
+
+relationships:
+  implements:
+    - id: "KN-C-000025"
+      note: "LangGraph 是状态机思想在 Agent 框架中的实现"
+  supports:
+    - id: "KN-C-000024"
+      note: "LangGraph 内置 interrupt_before/after 实现 HITL"
+    - id: "KN-C-000027"
+      note: "LangGraph Checkpointer 实现 Checkpoint & Resume"
+    - id: "KN-C-000028"
+      note: "interrupt 机制支持 Agent 中断和恢复"
+
+interview_points:
+  - "LangGraph 的三个核心概念（State/Node/Edge）分别是什么？"
+  - "LangGraph 和直接写 Python 控制流有什么本质区别？"
+  - "LangGraph 的 Checkpoint 如何工作？支持什么级别的持久化？"
+  - "如何用 LangGraph 实现 Human-in-the-Loop？（要求写代码）"
+  - "条件边（conditional_edges）和普通边的区别？什么时候用条件边？"
+  - "LangGraph 和 LangChain 的关系？（L2+ 考察）"
+
+exam_points:
+  - "LangGraph 三要素：State（共享数据）+ Node（处理函数）+ Edge（控制流）"
+  - "Checkpointer：MemorySaver（开发）/ SqliteSaver（单机生产）/ PostgresSaver（分布式）"
+  - "HITL 实现：interrupt_before=['node_name']，人工审批后 invoke(None, config) 继续"
+  - "条件边：根据 State 动态决定下一节点，实现分支逻辑"
+  - "recursion_limit 默认 25，防止图无限循环"
+
+one_liner: "LangGraph = 用图建模 Agent 工作流，Node+Edge+State+Checkpoint，让复杂 Agent 可持久、可中断、可可视化。"
+difficulty: advanced

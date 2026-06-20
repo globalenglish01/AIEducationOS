@@ -1,0 +1,126 @@
+id: "KN-C-000003"
+type: Concept
+name: "Context Window"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - foundation
+  - llm
+  - memory
+  - architecture
+
+aliases:
+  - "上下文窗口"
+  - "Context Length"
+  - "上下文长度"
+
+summary: "LLM 每次请求能看到的最大 Token 数量，是它的'工作记忆'边界，直接影响系统设计。"
+
+definition: |
+  Context Window（上下文窗口）是 LLM 在单次推理中能处理的最大 Token 数量。
+  它同时包含输入（Prompt + 历史对话 + 检索内容）和输出（生成的回答）。
+  超出 Context Window 的内容会被截断，LLM 完全无法访问。
+  典型大小：GPT-3.5 = 16K，GPT-4o = 128K，Claude 3.5 = 200K，Gemini 1.5 = 1M。
+
+why: |
+  LLM 没有持久记忆。每次请求都是全新的——它唯一能"记住"的，
+  就是当前 Context Window 里的内容。
+  Context Window 的大小决定了：能处理多长的文档、能记住多长的对话历史、
+  能注入多少外部知识（RAG 检索结果）。
+  这是 AI 系统设计中最重要的物理约束之一。
+
+mental_model: |
+  Context Window = 考试时桌面的大小（开卷考试）
+  - 桌面只有这么大，能摊开的参考资料就这么多
+  - 超出桌面的资料必须收起来，考试时看不到
+  - 桌面越大，能参考的资料越多，回答越准确
+  - 但桌面太大也有问题：找关键信息变慢（注意力分散）
+
+how_it_works: |
+  一次 LLM 请求的 Context Window 组成：
+  ┌─────────────────────────────────────────┐
+  │  System Prompt（角色定义、规则）          │
+  │  Few-shot Examples（示例）               │
+  │  Retrieved Docs（RAG 检索结果）           │
+  │  Conversation History（历史对话）         │
+  │  Current User Message（当前输入）         │
+  │  ─────────────────────────────────────  │
+  │  [Generated Response]（输出占用）         │
+  └─────────────────────────────────────────┘
+  所有部分加起来不能超过 Context Window 上限。
+
+core_principles:
+  - "Context Window 是 LLM 唯一的'记忆'——不在窗口内就等于不存在"
+  - "输入 + 输出共享同一个 Context Window，输出越长，留给输入的空间越少"
+  - "Context Window 越大不一定越好：大窗口中信息密度低，关键内容可能被淹没（Lost in the Middle 问题）"
+  - "Context Window 大小影响成本：处理的Token越多，费用越高"
+
+examples:
+  - scenario: "长文档问答"
+    description: "200K Context Window 的 Claude 可以直接放入一本书，然后问任何关于书的问题"
+  - scenario: "多轮对话"
+    description: "对话历史随轮次增长，需要设计'历史压缩'策略，避免撑爆 Context Window"
+  - scenario: "RAG 注入"
+    description: "检索到5个文档片段各500Token，加上其他Prompt共用Context Window，需要精确规划空间"
+
+counter_examples:
+  - "不要以为 Context Window 越大就万事大吉——关键信息放在中间可能被忽略（Lost in the Middle）"
+  - "不要不管不顾地堆内容——每个Token都有成本，多余的内容只会浪费钱并干扰输出"
+
+relationships:
+  prerequisites:
+    - id: "KN-C-000001"
+      note: "Context Window 是 LLM 的核心约束，先理解 LLM"
+    - id: "KN-C-000002"
+      note: "Context Window 以 Token 计量"
+  used_by:
+    - id: "KN-C-000004"
+      note: "Hallucination 部分源于 Context 信息不足"
+    - id: "KN-C-000010"
+      note: "Prompt 设计必须考虑 Context Window 预算"
+  related_concepts:
+    - id: "KN-C-000030"
+      note: "RAG 的设计目标之一是在有限 Context 内注入最相关的知识"
+
+common_misconceptions:
+  - misconception: "LLM 能记住所有历史对话"
+    correction: "LLM 没有持久记忆。每次请求独立，只能看到当前 Context Window 内的内容。超出的历史会被截断或遗忘。"
+  - misconception: "Context Window 越大，系统设计就越简单"
+    correction: "大 Context Window 带来'Lost in the Middle'问题：关键信息放在中间部分时，LLM 容易忽略。同时成本也更高。"
+  - misconception: "Context Window 只是输入的大小"
+    correction: "Context Window = 输入 Token + 输出 Token 的总和。输出越长，留给输入的空间越少。"
+
+best_practices:
+  - "将最重要的信息放在 Context 的开头或结尾（LLM 对首尾内容注意力更强）"
+  - "设计 Context 预算：System Prompt + Examples + RAG Results + History + User Input 各自分配 Token 上限"
+  - "对长对话实现历史压缩（摘要化早期历史）"
+  - "RAG 检索结果按相关性排序，最相关的放在靠近问题的位置"
+
+anti_patterns:
+  - pattern: "不限制历史对话长度，让它无限增长"
+    consequence: "Context Window 溢出，早期历史被截断，LLM '忘记'重要信息；成本随对话轮数线性增长"
+  - pattern: "把所有可能相关的文档都塞进 Context"
+    consequence: "关键信息被噪音淹没（Lost in the Middle），输出质量下降，成本飙升"
+
+interview_points:
+  - "Context Window 是什么？它对多轮对话系统设计有什么影响？"
+  - "什么是'Lost in the Middle'问题？如何缓解？"
+  - "如何设计 Context 预算，让有限的 Context Window 发挥最大价值？"
+  - "Context Window 和 LLM 记忆的关系是什么？如何实现长期记忆？"
+  - "128K Context Window 能放多少中文内容？（约8-9万字）"
+
+exam_points:
+  - "Context Window = 输入Token + 输出Token，共享上限"
+  - "LLM 没有持久记忆，每次请求独立，只能看到当前 Context 内容"
+  - "Lost in the Middle：关键信息在中间时 LLM 注意力下降"
+  - "解决长对话的方法：历史摘要压缩、外部记忆存储（Long-term Memory）"
+  - "128K Token ≈ 8-9万中文字，≈ 10万英文字"
+
+one_liner: "Context Window 是 LLM 的桌面大小——桌面外的资料它看不见，设计系统时必须精打细算。"
+difficulty: beginner
+
+references:
+  - "Lost in the Middle 论文: Liu et al., 2023"
+  - "各模型 Context Window 对比: https://artificialanalysis.ai/"

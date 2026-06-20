@@ -1,0 +1,138 @@
+id: "KN-C-000025"
+type: Concept
+name: "State Machine（状态机）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - workflow
+  - state-machine
+  - architecture
+
+aliases:
+  - "有限状态机"
+  - "FSM"
+  - "Finite State Machine"
+
+summary: "用'状态 + 转换条件'描述系统行为的计算模型——LangGraph 等 Agent 框架的理论基础。"
+
+definition: |
+  状态机（有限状态机，FSM）是一种计算模型，由以下部分组成：
+  - 状态集合（States）：系统当前所处的阶段（如 idle、running、waiting、done）
+  - 转换（Transitions）：从一个状态到另一个状态的条件和动作
+  - 初始状态（Initial State）：系统启动时的状态
+  - 终止状态（Final States）：任务完成的状态
+  任何时刻系统只处于一个确定的状态，输入事件触发状态转换。
+  LangGraph 的 StateGraph 就是状态机的 Agent 实现。
+
+why: |
+  Agent 执行复杂任务时，需要在多个步骤之间有条件地跳转：
+  "检索成功→继续生成" vs "检索失败→重试或降级"
+  "人工批准→继续" vs "人工拒绝→终止"
+  如果不用状态机，这些逻辑会写成嵌套的 if/else，难以维护和调试。
+  状态机把"控制流"变成"图结构"，使复杂的 Agent 工作流可视化、可维护。
+
+mental_model: |
+  状态机 = 交通信号灯
+  - 状态：红灯 / 黄灯 / 绿灯（系统在某时刻只能是一种状态）
+  - 转换：红灯→绿灯（条件：倒计时结束），绿灯→黄灯（条件：即将变红）
+  - 状态转换由条件触发，不能随意跳转
+
+  Agent 状态机类比：
+  - 状态：research（检索中）/ generate（生成中）/ review（审核中）/ done（完成）
+  - 转换：research→generate（条件：检索结果充足）
+          generate→review（条件：内容生成完成）
+          review→generate（条件：审核不通过，重新生成）
+          review→done（条件：审核通过）
+
+how_it_works: |
+  LangGraph 状态机示例：
+
+  from langgraph.graph import StateGraph, END
+  from typing import TypedDict, Literal
+
+  # 定义 State（状态数据结构）
+  class AgentState(TypedDict):
+      task: str
+      research_result: str
+      draft: str
+      review_feedback: str
+      iteration: int
+
+  # 定义节点（每个节点是一个状态处理函数）
+  def research_node(state: AgentState) -> AgentState:
+      result = do_research(state["task"])
+      return {"research_result": result}
+
+  def generate_node(state: AgentState) -> AgentState:
+      draft = write_draft(state["task"], state["research_result"])
+      return {"draft": draft, "iteration": state["iteration"] + 1}
+
+  def review_node(state: AgentState) -> AgentState:
+      feedback = review_draft(state["draft"])
+      return {"review_feedback": feedback}
+
+  # 定义条件转换（边）
+  def should_regenerate(state: AgentState) -> Literal["generate", "done"]:
+      if "通过" in state["review_feedback"] or state["iteration"] >= 3:
+          return "done"
+      return "generate"  # 审核不通过，重新生成
+
+  # 构建状态机图
+  graph = StateGraph(AgentState)
+  graph.add_node("research", research_node)
+  graph.add_node("generate", generate_node)
+  graph.add_node("review", review_node)
+
+  graph.set_entry_point("research")
+  graph.add_edge("research", "generate")
+  graph.add_edge("generate", "review")
+  graph.add_conditional_edges("review", should_regenerate)  # 条件转换
+  graph.add_edge("done", END)
+
+  app = graph.compile()
+
+core_principles:
+  - "状态完备：State 包含任务执行所需的所有数据，节点只通过 State 交换信息"
+  - "转换确定：每个状态在每种输入下的转换结果是确定的（可预测）"
+  - "单一职责：每个节点只做一件事，状态转换逻辑在边（Edge）上，不在节点里"
+  - "终止保证：必须有可达的终止状态（END），防止无限循环"
+
+state_design_guidelines: |
+  AgentState 设计原则：
+  1. 只存任务相关数据，不存临时变量
+  2. 字段类型清晰（使用 TypedDict 或 Pydantic）
+  3. 支持序列化（便于 Checkpoint 持久化）
+  4. 包含控制字段（iteration_count、error_count 等）用于终止判断
+
+anti_patterns:
+  - pattern: "节点内部包含状态转换逻辑（if/else 决定下一步）"
+    consequence: "控制流分散在各节点，图结构不清晰，难以可视化和调试"
+  - pattern: "State 过于庞大，包含所有中间变量"
+    consequence: "Checkpoint 数据膨胀，状态难以理解，Checkpoint/Resume 复杂度高"
+  - pattern: "没有终止状态"
+    consequence: "Agent 无限循环，资源耗尽"
+
+relationships:
+  implemented_by:
+    - id: "KN-C-000026"
+      note: "LangGraph StateGraph 是状态机在 Agent 框架中的实现"
+  used_in:
+    - id: "KN-C-000021"
+      note: "Agent Loop 的控制流本质上是一个状态机"
+
+interview_points:
+  - "状态机的组成要素是什么？"
+  - "为什么 Agent 工作流适合用状态机建模？"
+  - "LangGraph 的 StateGraph 和状态机的对应关系是什么？"
+  - "State 设计的核心原则有哪些？"
+
+exam_points:
+  - "状态机 = 状态集合 + 转换条件 + 初始状态 + 终止状态"
+  - "任何时刻系统只处于一个确定状态，转换由条件触发"
+  - "LangGraph StateGraph 是状态机的 Agent 实现"
+  - "转换逻辑放在 Edge（边），不放在 Node（节点），保持单一职责"
+
+one_liner: "状态机 = 用'状态+转换条件'描述系统行为，让复杂 Agent 工作流可视化、可维护。"
+difficulty: advanced

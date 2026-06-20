@@ -1,0 +1,161 @@
+id: "KN-C-000038"
+type: Practice
+name: "Eval Dataset（评估数据集）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L2-L3"
+tags:
+  - evaluation
+  - dataset
+  - quality
+
+aliases:
+  - "评估集"
+  - "测试集"
+  - "Golden Dataset"
+
+summary: "覆盖真实使用场景的标准化测试用例集合——AI 系统质量评估的基础，没有 Eval Dataset 就没有可靠的质量保证。"
+
+definition: |
+  Eval Dataset（评估数据集）是一组精心设计的测试用例，
+  用于系统性地评估 AI 系统（LLM/RAG/Agent）的输出质量。
+  每个测试用例通常包含：输入（问题/任务）、期望输出（参考答案）、元数据（场景标签）。
+  Eval Dataset 是"能够重复运行、可量化比较"的质量基准线，
+  是所有 Prompt 优化、系统迭代的决策依据。
+
+why: |
+  没有 Eval Dataset 的 AI 开发：
+  - "感觉效果不错" → 主观且不可靠
+  - Prompt 修改后不知道是变好了还是变差了
+  - 系统迭代没有客观基准，靠拍脑袋决定
+  - 上线后才发现问题，用户已经受到影响
+
+  有 Eval Dataset 后：
+  - 每次变更后运行 Eval，数字说话
+  - 发现质量回退：某个指标从 0.89 跌到 0.72，立即报警
+  - 优化方向明确：针对低分场景（类型 X 的问题）重点优化
+
+mental_model: |
+  Eval Dataset = 软件工程中的单元测试套件
+  - 单元测试：每次代码改动后跑测试，确保功能没有退化
+  - Eval Dataset：每次 Prompt / 模型 / 系统改动后跑评估，确保质量没有退化
+
+  Golden Dataset（黄金数据集）：
+  包含人工精心审核过的参考答案，是最可信的评估基准
+
+dataset_components:
+  - name: "Question（输入）"
+    description: "代表真实用户场景的问题或任务"
+    quality_criteria: "真实、多样、覆盖各种难度和类型"
+  - name: "Reference Answer（参考答案）"
+    description: "人工或专家审核过的标准答案"
+    quality_criteria: "准确、完整、与实际业务要求一致"
+  - name: "Context（上下文，RAG 系统需要）"
+    description: "问题对应的相关文档或知识库片段"
+  - name: "Metadata（元数据）"
+    description: "场景类型、难度级别、数据来源、创建时间"
+    quality_criteria: "便于按场景分析，识别薄弱环节"
+
+dataset_construction_strategies:
+  - name: "从真实用户数据中采样"
+    description: "分析生产日志，找出高频、有代表性的问题"
+    pros: "最贴近真实使用场景"
+    cons: "需要脱敏处理，不包含边界情况"
+
+  - name: "场景驱动的人工设计"
+    description: "枚举所有重要使用场景，每个场景设计若干测试用例"
+    pros: "覆盖面可控，边界情况不遗漏"
+    cons: "耗时，可能不覆盖未预料的真实场景"
+
+  - name: "LLM 辅助生成（再人工校验）"
+    description: "让 LLM 基于文档/主题生成问题和初版答案，人工审核和修正"
+    pros: "速度快，可快速生成大量样本"
+    cons: "LLM 生成的问题可能有偏差，必须人工校验"
+    example: |
+      GENERATE_PROMPT = """
+      基于以下文档，生成 10 个有代表性的问题和参考答案。
+      要求：
+      - 问题类型多样（定义类、操作类、对比类、原因类）
+      - 包含2个容易混淆的边界情况
+      - 参考答案准确、简洁
+
+      文档内容：{document}
+
+      以 JSON 数组格式输出，每项包含 question 和 answer 字段。
+      """
+
+dataset_quality_criteria:
+  - criterion: "代表性"
+    description: "测试集中各场景类型的分布，与生产流量分布接近"
+  - criterion: "多样性"
+    description: "覆盖不同难度、不同表达方式、不同类型的问题"
+  - criterion: "挑战性"
+    description: "包含边界情况、容易混淆的问题、对抗性问题"
+  - criterion: "准确性"
+    description: "参考答案经过专家审核，确保准确"
+  - criterion: "时效性"
+    description: "定期更新，纳入新场景和发现的问题"
+
+dataset_sizing_guide:
+  prototype: "开发阶段：50-100 个，快速迭代"
+  production_entry: "上线前：200-500 个，覆盖主要场景"
+  mature_product: "成熟产品：500-2000+ 个，细分场景分析"
+  note: "质量 > 数量：100 个高质量样本胜过 1000 个低质量样本"
+
+dataset_versioning: |
+  Eval Dataset 必须版本控制（存 Git）：
+  - 每次数据集更新都有对应的版本号
+  - 可以对比不同版本数据集上的系统表现
+  - 数据集变更需要 Review（新增/删除测试用例都要有理由）
+
+  目录结构建议：
+  eval/
+  ├── datasets/
+  │   ├── v1.0/
+  │   │   ├── basic_qa.jsonl         # 基础问答
+  │   │   ├── edge_cases.jsonl       # 边界情况
+  │   │   └── metadata.json
+  │   └── v1.1/
+  ├── results/
+  │   ├── 2026-06-19_prompt-v2.json  # 每次评估结果存档
+  └── run_eval.py                    # 评估脚本
+
+best_practices:
+  - "每次 Prompt 或系统变更后，在同一个 Eval Dataset 上运行评估并与历史结果对比"
+  - "按场景分类分析：不只看总体平均分，找出在哪类问题上表现差"
+  - "将用户反馈的'答错的问题'加入 Eval Dataset：每个线上问题都是潜在的测试用例"
+  - "设置质量门禁阈值：如 Faithfulness < 0.85 则拒绝 Prompt 变更上线"
+
+anti_patterns:
+  - pattern: "Eval Dataset 和训练数据（Few-shot 示例）完全重叠"
+    consequence: "评估结果虚高（模型记住了答案），无法反映真实泛化能力"
+  - pattern: "Eval Dataset 从不更新"
+    consequence: "随业务发展，新场景不在评估集中，质量问题无法被发现"
+  - pattern: "只用 Eval Dataset 评估，没有持续的线上监控"
+    consequence: "Eval Dataset 覆盖不到的场景（长尾问题）出现质量问题无法及时发现"
+
+relationships:
+  used_by:
+    - id: "KN-C-000036"
+      note: "LLM-as-Judge 在 Eval Dataset 上运行，计算评估指标"
+    - id: "KN-C-000037"
+      note: "RAGAS 评估需要 Eval Dataset 提供问题和参考答案"
+    - id: "KN-C-000039"
+      note: "Regression Testing 在 Eval Dataset 上运行，检测质量回退"
+
+interview_points:
+  - "为什么 AI 系统需要 Eval Dataset？没有它会有什么问题？"
+  - "Eval Dataset 的构建策略有哪些？各自有什么优劣？"
+  - "Eval Dataset 的质量标准有哪些？"
+  - "如何将 Eval Dataset 集成到开发工作流？（L2+ 考察）"
+  - "如何确保 Eval Dataset 不过时？（L3+ 考察）"
+
+exam_points:
+  - "Eval Dataset = AI 系统的单元测试套件，每次变更后运行，确保质量没有退化"
+  - "构建策略：用户数据采样 / 场景驱动人工设计 / LLM 生成+人工校验"
+  - "质量标准：代表性 / 多样性 / 挑战性 / 准确性 / 时效性"
+  - "必须版本控制（存 Git），质量 > 数量"
+
+one_liner: "Eval Dataset = AI 的单元测试集，没有它就没有可靠的质量保证——每次系统变更后都要跑一遍。"
+difficulty: intermediate

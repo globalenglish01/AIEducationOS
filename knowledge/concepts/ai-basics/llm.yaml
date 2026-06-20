@@ -1,0 +1,155 @@
+id: "KN-C-000001"
+type: Concept
+name: "LLM (Large Language Model)"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L0-L1"
+tags:
+  - foundation
+  - model
+  - language
+
+aliases:
+  - "Large Language Model"
+  - "大语言模型"
+  - "基础模型"
+  - "Foundation Model"
+
+summary: "用海量文本训练出来的 AI 模型，能理解并生成人类语言，是 AI Native 工程的基础组件。"
+
+definition: |
+  Large Language Model（大语言模型，LLM）是一种基于 Transformer 架构，
+  在数千亿规模文本数据上预训练的神经网络模型。
+  它能够理解输入文本（Prompt），并以概率方式逐 Token 生成输出文本。
+  典型代表：GPT-4、Claude、DeepSeek、Llama。
+
+why: |
+  在 LLM 出现之前，让计算机理解自然语言需要人工定义规则，
+  或者用小模型完成极其有限的任务（如分类、命名实体识别）。
+  LLM 的出现使得一个模型可以完成翻译、写代码、回答问题、推理等几乎所有语言任务，
+  成为 AI 应用的通用基础组件——就像操作系统之于软件工程。
+
+mental_model: |
+  LLM = 一个"接龙高手"
+  它本质上只做一件事：给定前面的文字，预测下一个最可能出现的词（Token）。
+  但因为训练数据极其丰富，它"见过"几乎所有人类知识，
+  所以它的"接龙"看起来像理解、推理、创作。
+
+  类比：一个读过所有书的人，被要求"接着说"——
+  他不是真的在思考，而是在凭借极其丰富的阅读经验做出最合理的预测。
+
+history: |
+  2017年：Google 提出 Transformer 架构（"Attention Is All You Need"）
+  2018年：OpenAI 发布 GPT-1，BERT 出现，预训练模型时代开始
+  2020年：GPT-3（1750亿参数）展现涌现能力，引发业界震动
+  2022年：ChatGPT 发布，LLM 进入大众视野
+  2023年：GPT-4、Claude、Llama 2 相继发布，开源 + 闭源生态并行
+  2024年：DeepSeek、Qwen 等中国模型崛起，多模态成为标配
+  2025年：推理模型（o1/R1）出现，LLM 开始具备深度推理能力
+
+problem_it_solves: |
+  1. 语言理解的通用性：一个模型解决所有语言任务，不再需要为每个任务单独训练
+  2. 知识获取的成本：无需人工标注规则，从数据中自动学习
+  3. 自然交互界面：用自然语言代替编程接口，降低 AI 使用门槛
+  4. 跨领域泛化：同一模型能写诗、写代码、解数学题、做法律分析
+
+how_it_works: |
+  1. 输入处理：将文本切分为 Token（词片段）
+  2. 编码：将每个 Token 转为向量（Embedding）
+  3. 注意力计算：Transformer 的 Self-Attention 让每个 Token 关注其他所有 Token
+  4. 多层叠加：数十到数百层 Transformer Block 逐层提取语义
+  5. 输出：对词表中每个 Token 计算概率，采样得到下一个 Token
+  6. 重复步骤5，直到生成结束标记
+
+core_principles:
+  - "LLM 是概率模型，不是确定性程序：同样的输入，每次输出可能不同"
+  - "LLM 没有理解，只有统计模式：它预测'什么词最可能出现'，而非'理解意思'"
+  - "规模带来涌现：参数量超过某个阈值，能力会突然跃升（涌现现象）"
+  - "上下文窗口是记忆边界：LLM 只能看到 Context Window 内的内容"
+
+examples:
+  - scenario: "代码生成"
+    description: "给定需求描述，LLM 生成对应 Python 代码"
+  - scenario: "文档问答"
+    description: "给定文档内容 + 问题，LLM 基于文档回答（RAG 的核心）"
+  - scenario: "任务规划"
+    description: "给定复杂任务，LLM 将其拆解为可执行步骤（Agent Planning）"
+
+counter_examples:
+  - "LLM 不适合需要精确计算的场景（如财务计算），应使用代码工具"
+  - "LLM 不适合需要实时数据的场景（如股票价格），应结合 RAG 或 Tool"
+  - "LLM 不适合确定性业务逻辑（如税率计算规则），规则引擎更可靠"
+
+relationships:
+  prerequisites: []
+  used_by:
+    - id: "KN-C-000002"
+      note: "Token 是 LLM 处理文本的基本单位"
+    - id: "KN-C-000003"
+      note: "Context Window 是 LLM 的记忆边界"
+    - id: "KN-C-000010"
+      note: "Prompt 是与 LLM 交互的方式"
+    - id: "KN-C-000020"
+      note: "Agent 以 LLM 为推理核心"
+    - id: "KN-C-000030"
+      note: "RAG 将检索结果注入 LLM"
+  extends: []
+  related_concepts:
+    - id: "KN-C-000004"
+      note: "Hallucination 是 LLM 的核心缺陷"
+    - id: "KN-C-000005"
+      note: "Temperature 控制 LLM 输出的随机性"
+
+common_misconceptions:
+  - misconception: "LLM 是在'思考'或'理解'"
+    correction: "LLM 是在做统计预测——预测下一个最可能的 Token。它的输出看起来像理解，是因为训练数据极其丰富，而非真正具备推理能力。"
+  - misconception: "LLM 记得所有对话历史"
+    correction: "LLM 只能看到当前请求中 Context Window 内的内容。超出窗口的内容会被截断，LLM 完全'忘记'。"
+  - misconception: "更大的模型一定更好"
+    correction: "在具体任务上，小模型 + 好的 Prompt/RAG 可能胜过大模型。成本、延迟、隐私也是选型的关键因素。"
+  - misconception: "LLM 输出的内容一定是事实"
+    correction: "LLM 会自信地生成错误内容（幻觉），必须通过 RAG、Evaluation、人工审核等手段控制质量。"
+
+best_practices:
+  - "始终将 LLM 视为概率组件，而非确定性函数——设计 Evaluation 来持续监控输出质量"
+  - "对关键业务场景设置 Human-in-the-Loop，不要让 LLM 直接驱动不可逆操作"
+  - "选型时考虑：能力、成本、延迟、隐私、数据主权——没有万能最优解"
+  - "Temperature=0 用于调试（可复现）；生产环境根据任务类型调整"
+
+anti_patterns:
+  - pattern: "把 LLM 当数据库用（问它具体事实）"
+    consequence: "高幻觉率，输出不可信。应使用 RAG 或结构化数据源"
+  - pattern: "不做 Evaluation 直接上生产"
+    consequence: "质量问题累积到用户投诉才发现，无法量化改进效果"
+  - pattern: "用同一个大模型处理所有任务"
+    consequence: "成本浪费。简单分类用小模型，复杂推理用大模型"
+
+real_world_cases:
+  - description: "GitHub Copilot 用 LLM 实现代码补全，开发效率提升 55%"
+    company: "GitHub / Microsoft"
+  - description: "客服系统接入 LLM，首次响应率提升 40%，人工介入减少 60%"
+    company: "典型 SaaS 企业"
+
+interview_points:
+  - "LLM 的本质是什么？它如何生成文本？（考察：能否解释 Token 预测机制）"
+  - "LLM 为什么会产生幻觉？如何缓解？（考察：对 LLM 局限性的理解）"
+  - "Context Window 是什么？它对系统设计有什么影响？"
+  - "Temperature 参数的作用是什么？生产环境中如何设置？"
+  - "什么场景适合用 LLM，什么场景不适合？给出判断框架"
+  - "大模型和小模型如何选型？考虑哪些因素？"
+
+exam_points:
+  - "LLM 生成文本的方式：逐 Token 预测，基于概率分布采样"
+  - "Context Window 的限制：超出窗口的内容被截断，LLM 无法访问"
+  - "Temperature=0：确定性输出（总选最高概率）；Temperature 越高：输出越随机"
+  - "LLM 不适合的场景：精确计算、实时数据、确定性规则"
+  - "涌现现象：模型规模超过阈值后，能力突然跃升（非线性增长）"
+
+one_liner: "LLM = 读过所有书的接龙高手，概率预测下一个词，不是真的在思考。"
+difficulty: beginner
+
+references:
+  - "Attention Is All You Need (Vaswani et al., 2017)"
+  - "Language Models are Few-Shot Learners - GPT-3 论文 (Brown et al., 2020)"
+  - "LangChain LLM 集成文档: https://docs.langchain.com/docs/integrations/llms/"

@@ -1,0 +1,236 @@
+id: "KN-C-000053"
+type: Practice
+name: "Chaos Engineering（混沌工程）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L3-L4"
+tags:
+  - advanced
+  - reliability
+  - testing
+  - chaos-engineering
+
+aliases:
+  - "混沌工程"
+  - "故障注入测试"
+  - "Fault Injection"
+
+summary: "在受控条件下主动向 AI 系统注入故障，验证系统在真实故障场景下的韧性——L3 工程师区别于 L2 的核心能力之一。"
+
+definition: |
+  Chaos Engineering 是通过主动向系统注入故障（网络超时、依赖服务失败、资源耗尽等），
+  验证系统在真实生产故障场景下是否能正确处理的测试方法。
+  对于 AI/LLM 系统，Chaos Engineering 关注：
+  LLM API 不可用时、Token 超限时、并发激增时、Agent 陷入循环时，
+  系统是否能优雅降级、恢复、报警，而不是崩溃或产生错误答案。
+
+  "先于故障找到故障" = Chaos Engineering 的核心价值。
+
+why: |
+  AI 系统面临独特的故障模式：
+  1. LLM API 具有不稳定性（OpenAI/Anthropic 也会限流、超时、断线）
+  2. Agent 可能无限循环（ReAct Loop 没有正确终止）
+  3. Token 成本在高并发下可能爆炸
+  4. LLM 在某些输入下可能行为异常（格式错误、极长输入）
+
+  不做 Chaos Engineering 的后果：
+  - 第一次在生产环境遭遇限流 → 系统雪崩
+  - Agent 在真实任务中陷入循环 → 账单爆炸
+  - 用户高峰期 LLM 超时 → 服务不可用
+
+nine_fault_scenarios:
+  - id: 1
+    name: "LLM API 超时"
+    description: "模拟 LLM API 响应超过设定超时时间"
+    injection: |
+      # 用 Mock 替换真实 LLM，强制超时
+      class TimeoutLLM:
+          async def chat(self, messages, timeout=30):
+              await asyncio.sleep(timeout + 5)  # 超过超时时间
+              raise asyncio.TimeoutError("LLM 响应超时")
+
+      # 验证系统是否：
+      # ✓ 在超时后正确抛出异常
+      # ✓ 重试机制正常工作（指数退避）
+      # ✓ 超过最大重试次数后返回降级响应
+      # ✓ 用户收到有意义的错误提示
+    expected_behavior: "超时后触发重试，超过最大重试次数后优雅降级（返回缓存结果或友好错误）"
+
+  - id: 2
+    name: "Rate Limiting（限流，429）"
+    description: "模拟 LLM API 返回 429 Too Many Requests"
+    injection: |
+      class RateLimitedLLM:
+          def __init__(self, fail_count=3):
+              self.count = 0
+              self.fail_count = fail_count
+
+          async def chat(self, messages):
+              self.count += 1
+              if self.count <= self.fail_count:
+                  raise RateLimitError("429: Too Many Requests")
+              return real_llm.chat(messages)
+
+      # 验证：
+      # ✓ 收到 429 后进行指数退避重试（不是立即重试）
+      # ✓ 正确解析 Retry-After 响应头
+      # ✓ 超过重试上限后触发队列等待或降级
+    expected_behavior: "收到 429 后指数退避，解析 Retry-After，不立即重试；超限后排队或降级"
+
+  - id: 3
+    name: "无效 JSON 响应"
+    description: "LLM 返回格式错误的 JSON（在要求结构化输出时）"
+    injection: |
+      class MalformedJsonLLM:
+          async def chat(self, messages):
+              # 返回无效 JSON（缺少结束括号、包含额外文字等）
+              return '{"result": "ok", broken json here'
+
+      # 验证：
+      # ✓ JSON 解析失败被正确捕获
+      # ✓ 触发重试（要求 LLM 重新生成有效 JSON）
+      # ✓ 超过重试次数后有默认降级值
+    expected_behavior: "解析失败后重试要求 LLM 重新生成，重试策略有上限"
+
+  - id: 4
+    name: "浏览器 / 工具崩溃"
+    description: "Agent 依赖的外部工具（如 Playwright 浏览器）意外崩溃"
+    injection: |
+      class CrashingBrowserTool:
+          async def navigate(self, url):
+              if random.random() < 0.3:  # 30% 概率崩溃
+                  raise BrowserCrashError("浏览器进程意外退出")
+              return real_browser.navigate(url)
+
+      # 验证：
+      # ✓ Agent 捕获工具错误并在 Observation 中记录
+      # ✓ Agent 尝试重启工具后重试
+      # ✓ 连续失败后向 Human-in-the-Loop 汇报
+    expected_behavior: "工具崩溃后 Agent 捕获错误、记录 Observation、尝试重启/重试"
+
+  - id: 5
+    name: "数据库连接池耗尽"
+    description: "高并发下数据库连接池全部占用，新查询无法获取连接"
+    injection: |
+      class ExhaustedPoolDB:
+          async def query(self, sql):
+              raise OperationalError("连接池已满，无法获取连接（pool_size=10）")
+
+      # 验证：
+      # ✓ 服务有连接等待超时机制（不是无限等待）
+      # ✓ 告警触发（连接池耗尽是紧急事件）
+      # ✓ 不影响已持有连接的请求
+    expected_behavior: "连接等待超时后返回 503，触发监控告警，现有请求不受影响"
+
+  - id: 6
+    name: "Token 配额耗尽"
+    description: "LLM API 账户的月度 Token 配额耗尽"
+    injection: |
+      class QuotaExhaustedLLM:
+          async def chat(self, messages):
+              raise QuotaExceededError("月度 Token 配额已耗尽")
+
+      # 验证：
+      # ✓ 配额耗尽的错误与普通 500 错误区分处理
+      # ✓ 自动切换到备用模型（如 GPT-4→Claude）或降级到更便宜的模型
+      # ✓ 及时通知技术负责人
+    expected_behavior: "检测到配额耗尽后自动切换备用账户/模型，告警通知"
+
+  - id: 7
+    name: "用户中途关闭页面"
+    description: "流式输出进行中，用户关闭浏览器，连接中断"
+    injection: |
+      # 模拟客户端连接中断
+      async def stream_response(response_generator):
+          async for chunk in response_generator:
+              if connection.is_closed():
+                  # 连接已关闭，停止生成
+                  raise ConnectionAbortedError("客户端连接已关闭")
+              yield chunk
+
+      # 验证：
+      # ✓ LLM 流式生成立即停止（不继续消耗 Token）
+      # ✓ 数据库事务正确回滚（如果有写操作）
+      # ✓ Agent 状态正确保存（支持用户重连后继续）
+    expected_behavior: "连接关闭后立即停止 LLM 生成，释放资源，保存可恢复状态"
+
+  - id: 8
+    name: "并发用户激增"
+    description: "短时间内并发请求量增加 10 倍"
+    injection: |
+      # 使用 locust 或 k6 进行压力测试
+      # locustfile.py
+      from locust import HttpUser, task
+
+      class AIUser(HttpUser):
+          @task
+          def send_query(self):
+              self.client.post("/api/chat", json={"message": "解释 RAG"})
+
+      # 运行：locust --users 100 --spawn-rate 10
+      # 验证：
+      # ✓ P95 延迟在可接受范围内（< 10 秒）
+      # ✓ 错误率 < 1%（不因并发崩溃）
+      # ✓ 自动扩缩容触发
+    expected_behavior: "并发激增时延迟可接受，错误率低，自动扩容或请求队列化"
+
+  - id: 9
+    name: "Agent 无限循环"
+    description: "Agent 的工具调用持续失败，ReAct Loop 无法终止"
+    injection: |
+      class AlwaysFailingTool:
+          async def execute(self, params):
+              raise ToolError("工具执行失败，请重试")
+
+      # Agent 会尝试：调用工具→失败→再调用→失败→再调用……
+      # 验证：
+      # ✓ max_iterations 触发，Loop 强制终止
+      # ✓ 终止时返回已完成的部分结果（而非空响应）
+      # ✓ 记录"因超过最大迭代次数终止"的日志
+    expected_behavior: "达到 max_iterations 后强制终止，返回部分结果，记录终止原因"
+
+chaos_testing_process: |
+  混沌测试流程（Game Day）：
+
+  1. 建立稳态（Steady State）
+     - 确认系统在正常条件下的基线指标（延迟、错误率、吞吐量）
+
+  2. 假设故障场景
+     - "如果 LLM API 超时 30 秒，系统应该在 35 秒内返回降级响应"
+
+  3. 在测试环境注入故障
+
+  4. 观察系统行为
+     - 对比故障期间与稳态的指标差异
+
+  5. 验证假设是否成立
+     - 成立：记录验证结论
+     - 不成立：记录发现的问题，纳入优先修复列表
+
+  6. 定期重复（每季度或每次重大架构变更后）
+
+relationships:
+  supports:
+    - id: "KN-C-000052"
+      note: "Chaos Engineering 是 FCARS Reliability 维度的核心验证手段"
+  tests:
+    - id: "KN-C-000021"
+      note: "Agent Loop 的 max_iterations 等终止机制通过 Chaos Engineering 验证"
+    - id: "KN-C-000024"
+      note: "HITL 的超时 Fail-safe 机制通过 Chaos Engineering 验证"
+
+interview_points:
+  - "为什么 AI 系统需要 Chaos Engineering？和传统软件有什么不同？"
+  - "列举3个 LLM/Agent 系统特有的故障场景，并描述期望的系统行为"
+  - "如何测试 Agent 的 max_iterations 保护机制是否正常工作？"
+  - "Chaos Engineering 应该在什么环境进行？（L3+ 考察风险控制）"
+
+exam_points:
+  - "Chaos Engineering = 主动注入故障验证系统韧性，先于用户发现故障"
+  - "9个 AI 特有场景：API超时/限流/无效JSON/工具崩溃/DB连接耗尽/Token配额/用户断线/并发激增/Agent无限循环"
+  - "流程：稳态 → 假设 → 注入 → 观察 → 验证 → 修复"
+  - "Agent 无限循环测试：验证 max_iterations 触发 + 部分结果返回 + 日志记录"
+
+one_liner: "混沌工程 = 主动打自己，在测试环境注入故障，验证 AI 系统在真实故障面前能否扛住——而不是等线上炸了再知道。"
+difficulty: expert

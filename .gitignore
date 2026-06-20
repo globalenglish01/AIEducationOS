@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Output (generated content - large, not source)
+output/history/
+output/auto_loop*.log
+output/auto_loop*.log
+output/run_debug*.log
+
+# Engine internal accounts / browser profiles (sensitive)
+engine/llm/engine/chatgpt_accounts.json
+engine/llm/accounts.json
+
+# Claude internal
+.claude/scheduled_tasks.lock
+
+# OS
+Thumbs.db
+.DS_Store

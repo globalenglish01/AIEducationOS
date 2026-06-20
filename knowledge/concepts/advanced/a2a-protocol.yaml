@@ -1,0 +1,189 @@
+id: "KN-C-000051"
+type: Protocol
+name: "A2A Protocol（Agent-to-Agent 协议）"
+version: "1.0"
+last_updated: "2026-06-19"
+status: active
+level: "L3-L4"
+tags:
+  - advanced
+  - multi-agent
+  - protocol
+  - interoperability
+
+aliases:
+  - "Agent-to-Agent"
+  - "A2A"
+  - "Google A2A"
+
+summary: "Google 2025 年提出的开放协议，定义 AI Agent 之间如何互相发现、通信和协作——让不同厂商的 Agent 能够跨系统协同工作。"
+
+definition: |
+  A2A（Agent-to-Agent）Protocol 是 Google 于 2025 年提出并开源的 Agent 互操作协议，
+  定义了 AI Agent 之间进行以下操作的标准方式：
+  - 能力发现（Discovery）：Agent A 如何发现 Agent B 能做什么
+  - 任务委托（Task Delegation）：Agent A 如何把子任务委托给 Agent B
+  - 状态同步（State Sync）：长时间任务中如何同步执行状态
+  - 安全认证（Authentication）：Agent 之间如何互相验证身份
+
+  A2A 和 MCP 的定位：
+  - MCP：LLM ↔ 工具（Model to Tool）
+  - A2A：Agent ↔ Agent（Agent to Agent）
+
+why: |
+  Multi-Agent 系统的碎片化问题：
+  - 每个 Agent 框架（LangGraph、AutoGen、CrewAI）都有自己的通信方式
+  - 不同公司的 Agent 无法互相调用（接口不兼容）
+  - 构建跨组织的 Agent 协作需要大量自定义集成代码
+
+  A2A 愿景：就像 HTTP 让所有 Web 服务互联互通，
+  A2A 让所有 AI Agent 能够互联互通，无论用什么框架实现。
+
+core_concepts:
+  agent_card:
+    description: "Agent 的自我描述文件（类似 API 文档），声明 Agent 的能力、接受的任务类型、通信端点"
+    example: |
+      # .well-known/agent.json（Agent Card）
+      {
+        "name": "DataAnalysisAgent",
+        "description": "专业数据分析 Agent，擅长统计分析和可视化",
+        "version": "1.0",
+        "capabilities": [
+          {
+            "name": "analyze_dataset",
+            "description": "分析 CSV 数据集，返回统计摘要和可视化",
+            "input_schema": {
+              "type": "object",
+              "properties": {
+                "dataset_url": {"type": "string"},
+                "analysis_type": {"type": "string", "enum": ["summary", "correlation", "trend"]}
+              }
+            },
+            "output_schema": {
+              "type": "object",
+              "properties": {
+                "summary": {"type": "string"},
+                "chart_url": {"type": "string"}
+              }
+            }
+          }
+        ],
+        "endpoint": "https://data-agent.company.com/a2a",
+        "auth": {"type": "bearer"}
+      }
+
+  task_lifecycle:
+    description: "A2A 定义的任务状态机"
+    states:
+      - "submitted：任务已提交"
+      - "working：Agent 正在处理"
+      - "input-required：需要更多信息（HITL 场景）"
+      - "completed：任务完成"
+      - "failed：任务失败"
+      - "cancelled：任务被取消"
+
+  communication_modes:
+    - name: "同步模式"
+      description: "请求-响应，适合短任务（< 30 秒）"
+    - name: "异步模式（SSE）"
+      description: "Server-Sent Events 流式推送，适合长任务，Orchestrator 可实时获取进度"
+    - name: "Push Notification"
+      description: "任务完成后主动推送回调，Orchestrator 无需轮询"
+
+how_it_works: |
+  A2A 工作流示例（Orchestrator Agent 委托子任务）：
+
+  # Orchestrator Agent 的工作流
+  class OrchestratorAgent:
+      async def run(self, task: str):
+          # Step 1: 发现可用的子 Agent
+          available_agents = await self.discover_agents([
+              "https://data-agent.company.com/.well-known/agent.json",
+              "https://report-agent.company.com/.well-known/agent.json"
+          ])
+
+          # Step 2: 委托数据分析子任务给 DataAnalysisAgent
+          analysis_task = await self.delegate_task(
+              agent_endpoint="https://data-agent.company.com/a2a",
+              task={
+                  "capability": "analyze_dataset",
+                  "input": {
+                      "dataset_url": "s3://bucket/sales_data.csv",
+                      "analysis_type": "trend"
+                  }
+              }
+          )
+
+          # Step 3: 异步等待结果（通过 SSE 或轮询）
+          result = await self.wait_for_completion(analysis_task.task_id)
+
+          # Step 4: 基于结果继续下一步
+          return await self.generate_report(result)
+
+  # A2A HTTP 请求格式（JSON-RPC 2.0）
+  POST https://data-agent.company.com/a2a
+  {
+    "jsonrpc": "2.0",
+    "method": "tasks/send",
+    "params": {
+      "id": "task-uuid-001",
+      "message": {
+        "role": "user",
+        "parts": [{
+          "type": "text",
+          "text": "分析 sales_data.csv 的趋势"
+        }]
+      }
+    }
+  }
+
+a2a_vs_mcp:
+  mcp:
+    full_name: "Model Context Protocol"
+    proposed_by: "Anthropic, 2024"
+    connects: "LLM ↔ 工具/数据源"
+    use_case: "单个 Agent 调用本地或远程工具"
+    analogy: "插件系统（LLM 的工具箱）"
+  a2a:
+    full_name: "Agent-to-Agent Protocol"
+    proposed_by: "Google, 2025"
+    connects: "Agent ↔ Agent"
+    use_case: "Orchestrator Agent 委托子任务给专业 Agent"
+    analogy: "微服务架构（Agent 版）"
+  complementary: |
+    两者互补，可以同时使用：
+    Orchestrator Agent（通过 A2A 协调多个子 Agent）
+      ↓ A2A
+    DataAgent（通过 MCP 调用数据库工具）
+    ReportAgent（通过 MCP 调用文件系统工具）
+
+adoption_status: |
+  截至 2025 年上半年：
+  - Google 开源了参考实现（Python/JS SDK）
+  - LangGraph、AutoGen 等主流框架在适配 A2A
+  - 部分企业开始试用，但还未成为行业标准
+  - 与 MCP 相比，A2A 生态成熟度较低
+
+relationships:
+  complements:
+    - id: "KN-R-000001"
+      note: "A2A（Agent间通信）与 MCP（Model-Tool通信）互补，共同构成 AI 协议栈"
+  enables:
+    - id: "KN-C-000020"
+      note: "A2A 使跨框架、跨组织的 Multi-Agent 协作成为可能"
+
+interview_points:
+  - "A2A Protocol 是什么？解决了什么问题？"
+  - "A2A 和 MCP 的区别是什么？两者是竞争还是互补关系？"
+  - "Agent Card 是什么？在 A2A 中扮演什么角色？"
+  - "A2A 任务的生命周期有哪些状态？"
+  - "在什么场景下需要 A2A，什么时候直接在同一个框架内多 Agent 协作就够了？（L4 考察）"
+
+exam_points:
+  - "A2A = Google 提出的 Agent 间互操作协议，让不同框架/组织的 Agent 能协作"
+  - "Agent Card = Agent 的自我描述（能力/端点/Schema），类似 API 文档"
+  - "A2A 任务状态：submitted→working→input-required/completed/failed/cancelled"
+  - "A2A vs MCP：A2A 是 Agent-Agent，MCP 是 Model-Tool，两者互补"
+
+one_liner: "A2A = Agent 之间的 HTTP 协议，让不同公司的 AI Agent 能互相发现、委托任务、协同工作。"
+difficulty: expert
