@@ -32,11 +32,16 @@ REWRITE_THRESHOLD = 85
 # 子进程 runner 脚本（独立进程运行 DeepSeek，结果写到临时 JSON 文件）
 _RUNNER_SCRIPT = """
 import sys, json, os
-# 子进程最开始就重置 asyncio loop/policy，避免 Playwright Sync API 报 "inside the asyncio loop"
+# 子进程最开始就重置 asyncio loop，避免 Playwright Sync API 报 "inside the asyncio loop"
 import asyncio as _asyncio
 try:
     _asyncio.set_event_loop(None)
-    _asyncio.set_event_loop_policy(_asyncio.DefaultEventLoopPolicy())
+except Exception:
+    pass
+try:
+    import asyncio
+    if hasattr(asyncio, 'WindowsSelectorEventLoopPolicy'):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 except Exception:
     pass
 sys.path.insert(0, sys.argv[1])  # ENGINE_INNER
@@ -197,7 +202,8 @@ class ReviewerAgent:
                 except Exception:
                     pass
                 try:
-                    _asyncio.set_event_loop_policy(_asyncio.DefaultEventLoopPolicy())
+                    if hasattr(_asyncio, 'WindowsSelectorEventLoopPolicy'):
+                        _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
                 except Exception:
                     pass
 
