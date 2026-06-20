@@ -113,6 +113,8 @@ class WriterAgent:
                                 {"role": "system", "content": SYSTEM_PROMPT},
                                 {"role": "user", "content": batch_msg},
                             ])
+                        if resp.strip() in ("RATE_LIMITED", "CHATGPT_ERROR"):
+                            raise Exception(f"单段回复 {resp.strip()}")
                         parts_collected.append(resp.strip())
                         # 如果第1批已经包含了完整15个Parts，无需继续追问
                         combined_so_far = "\n\n".join(parts_collected)
@@ -129,6 +131,8 @@ class WriterAgent:
                             )
                         else:
                             resp = self.llm.chat([{"role": "user", "content": batch_msg}])
+                        if resp.strip() in ("RATE_LIMITED", "CHATGPT_ERROR"):
+                            raise Exception(f"批次{batch_idx+1}回复 {resp.strip()}")
                         parts_collected.append(resp.strip())
 
                 response = "\n\n".join(parts_collected)
