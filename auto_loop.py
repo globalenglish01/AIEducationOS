@@ -153,7 +153,7 @@ def run_chapter(chapter_num: int, force: bool = False) -> bool:
         "--end", str(chapter_num),
         "--no-deploy",
         "--account", "5",          # lucy82910 ChatGPT（新鲜账号）
-        "--reviewer-account", "2", # zhaoyx DeepSeek（已验证可用）
+        "--reviewer-account", "3", # acc_723239df DeepSeek（acc2 session超时后切换）
     ]
     if force:
         cmd.append("--force")
