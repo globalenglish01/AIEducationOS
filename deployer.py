@@ -596,7 +596,7 @@ def deploy_all(do_deploy: bool = True, log_fn=None) -> tuple[int, int]:
     failed = 0
 
     log(f"\n[Deploy] 扫描已生成章节...")
-    for node_id, chapter_num in CHAPTER_NUM_TO_NODE.items():
+    for chapter_num, node_id in CHAPTER_NUM_TO_NODE.items():
         md_path = CHAPTERS_DIR / f"ch{chapter_num:02d}_{node_id}.md"
         if not md_path.exists():
             continue
