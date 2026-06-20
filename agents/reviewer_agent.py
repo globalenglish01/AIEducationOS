@@ -181,11 +181,16 @@ class ReviewerAgent:
                 t.join(timeout=5)
                 raise RuntimeError("Reviewer 子进程超时（600秒）")
             finally:
-                # Windows 上 proc.wait() 会设置 ProactorEventLoop，必须立刻清除
-                # 否则后续 ChatGPT Writer 的 Playwright sync API 会报 asyncio loop 错误
+                # Windows ProactorEventLoop: proc.wait() 会在当前线程设置 ProactorEventLoop
+                # set_event_loop(None) 不够——必须同时把 policy 重置为默认（SelectorEventLoop policy）
+                # 否则 Playwright Sync API 在同进程后续调用时报 "inside the asyncio loop" 错误
                 import asyncio as _asyncio
                 try:
                     _asyncio.set_event_loop(None)
+                except Exception:
+                    pass
+                try:
+                    _asyncio.set_event_loop_policy(_asyncio.DefaultEventLoopPolicy())
                 except Exception:
                     pass
 
