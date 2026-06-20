@@ -104,13 +104,24 @@ class WriterAgent:
                 parts_collected = []
                 for batch_idx, batch_msg in enumerate(batch_prompts):
                     print(f"  [Writer] 分批生成 Part {batch_idx*5+1}-{batch_idx*5+5}...")
-                    if hasattr(self.llm, "chat_multipart") and batch_idx == 0:
-                        resp = self.llm.chat_multipart(SYSTEM_PROMPT, batch_msg)
+                    if batch_idx == 0:
+                        # 第1批：发 system+user，建立对话
+                        if hasattr(self.llm, "chat_multipart"):
+                            resp = self.llm.chat_multipart(SYSTEM_PROMPT, batch_msg)
+                        else:
+                            resp = self.llm.chat([
+                                {"role": "system", "content": SYSTEM_PROMPT},
+                                {"role": "user", "content": batch_msg},
+                            ])
                     else:
-                        resp = self.llm.chat([
-                            {"role": "system", "content": SYSTEM_PROMPT},
-                            {"role": "user", "content": batch_msg},
-                        ])
+                        # 第2、3批：只发 user 消息，继续同一对话（走 _raw_invoke via worker）
+                        if hasattr(self.llm, "_run_in_worker") and hasattr(self.llm, "_raw_invoke"):
+                            resp = self.llm._run_in_worker(
+                                lambda bm=batch_msg: self.llm._raw_invoke(bm),
+                                timeout=300
+                            )
+                        else:
+                            resp = self.llm.chat([{"role": "user", "content": batch_msg}])
                     parts_collected.append(resp.strip())
 
                 response = "\n\n".join(parts_collected)
