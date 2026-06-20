@@ -266,6 +266,7 @@ class ChapterPipeline:
                             chapter_content = new_content or chapter_content
                             continue
                         print(f"  [Pipeline] 基于上一版本（{prev_score}分）和评审反馈修改...")
+                        import asyncio as _aio; _aio.set_event_loop(None)
                         new_content = _apply_improvements(
                             writer, primary_node, research_data,
                             chapter_content,  # 上一轮的章节内容（非空）
@@ -325,6 +326,8 @@ class ChapterPipeline:
                     print(f"  [Pipeline] 分数 {score}，在当前对话内细化改进后保存...")
                     issues = review_result.get("critical_issues", [])
                     suggestions = review_result.get("improvement_suggestions", [])
+                    # Reviewer 子进程结束后可能残留 asyncio loop，清理后再调 Playwright Sync API
+                    import asyncio as _aio; _aio.set_event_loop(None)
                     # 改进在同一对话内进行，不开新对话
                     improved = _apply_improvements(
                         writer, primary_node, research_data,
