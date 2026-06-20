@@ -395,7 +395,7 @@ class ChatGPTBrowserLLM(BaseLLM):
                                 f"这是第{part_num}部分，共{total}部分。\n\n"
                                 "当前部分内容如下：\n\n"
                             )
-                            full_chunk = wait_header + chunk + "\n\n===START==="
+                            full_chunk = wait_header + chunk + "\n\n===START===\n以上是完整内容。请现在开始执行第1段中的指令，直接输出完整的 Markdown 章节内容。"
                             print(f"  [多段发送] 第 {part_num}/{total} 段（最后段+START，{len(full_chunk)} 字符）...")
                             bot.send_prompt(self._page, full_chunk, new_conversation=(i == 0))
                         else:
