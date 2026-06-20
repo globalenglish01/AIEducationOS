@@ -915,12 +915,13 @@ class App(ctk.CTk):
             return Path(acc["storage_dir"])
 
         def get_deepseek_profile(acc):
-            p = Path(acc["storage_dir"])
-            ds = p.parent / (p.name + "_deepseek")
-            return ds
+            return Path(acc["storage_dir"])
 
-        def has_cookies(profile_dir: Path) -> bool:
-            return (profile_dir / "Default" / "Cookies").exists()
+        def has_chatgpt_login(profile_dir: Path) -> bool:
+            return (profile_dir / "Default" / "IndexedDB" / "https_chatgpt.com_0.indexeddb.leveldb").exists()
+
+        def has_deepseek_login(profile_dir: Path) -> bool:
+            return (profile_dir / "Default" / "IndexedDB" / "https_chat.deepseek.com_0.indexeddb.leveldb").exists()
 
         def open_chrome(profile_dir: Path, url: str, acc_name: str, platform: str):
             profile_dir.mkdir(parents=True, exist_ok=True)
@@ -982,8 +983,8 @@ class App(ctk.CTk):
 
                 cgpt_profile = get_chatgpt_profile(acc)
                 ds_profile = get_deepseek_profile(acc)
-                cgpt_ok = has_cookies(cgpt_profile)
-                ds_ok = has_cookies(ds_profile)
+                cgpt_ok = has_chatgpt_login(cgpt_profile)
+                ds_ok = has_deepseek_login(ds_profile)
 
                 row = ctk.CTkFrame(left, fg_color=("gray90", "gray20"), corner_radius=4)
                 row.pack(fill="x", padx=4, pady=2)
