@@ -960,198 +960,92 @@ def get_last_answer(page) -> str:
 def _get_answer_via_copy_button(page) -> str:
     """
     点击 ChatGPT 最后一条回复的「Copy」按钮，返回剪贴板中的真正 Markdown。
-    失败时返回空字符串（调用方应 fallback 到 DOM 文字提取）。
+    用 JS .click() 直接触发，不依赖鼠标 hover（按钮 DOM 存在即可点击）。
+    失败时返回空字符串。
     """
     import pyperclip
+    import time as _t
 
     try:
         _pyperclip_copy_retry("__CLEAR__")
     except Exception:
         pass
 
-    import time as _t
+    # 找文字最长的 assistant 消息，用 JS 直接点击其复制按钮
+    # 策略：优先 data-testid="copy-turn-action-button"，再 aria-label 含 copy
+    JS_CLICK_COPY = """() => {
+        // 找文字最长的 assistant 消息（跳过短 ack）
+        const msgs = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+        if (!msgs.length) return {ok: false, reason: 'no assistant messages'};
 
-    # ── Step1: 滚动到最长的assistant消息（跳过短ack），hover触发按钮显示 ────────
-    try:
-        msg_pos = page.evaluate("""() => {
-            const els = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
-            if (!els.length) return null;
-            // 找文字最长的那条（跳过"收到，请继续"之类的短ack）
-            let best = els[els.length - 1];
-            let bestLen = (best.textContent || '').length;
-            for (const el of els) {
-                const len = (el.textContent || '').length;
-                if (len > bestLen) { bestLen = len; best = el; }
-            }
-            best.scrollIntoView({ block: 'end', behavior: 'instant' });
-            const r = best.getBoundingClientRect();
-            return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height - 20 } : null;
-        }""")
-        if msg_pos:
-            page.mouse.move(msg_pos["x"], msg_pos["y"])
-    except Exception:
-        pass
-
-    # ── Step2: 轮询等待复制按钮出现（最多5秒，每0.3秒检查一次）────────────────
-    JS_FIND_COPY = """() => {
-        function visiblePos(btn) {
-            const r = btn.getBoundingClientRect();
-            if (r.width > 0 && r.height > 0)
-                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-            return null;
+        let bestMsg = msgs[msgs.length - 1];
+        let bestLen = (bestMsg.textContent || '').length;
+        for (const m of msgs) {
+            const l = (m.textContent || '').length;
+            if (l > bestLen) { bestLen = l; bestMsg = m; }
         }
 
-        // 核心策略：找文字最长的 assistant turn，取那个 turn 的复制按钮
-        // 这样即使最后几条是短ack，也能拿到真正章节内容的按钮
-        const turns = Array.from(document.querySelectorAll(
-            'article[data-testid^="conversation-turn"]'
-        ));
-        if (turns.length) {
-            let bestTurn = null, bestLen = 0;
-            for (const turn of turns) {
-                const msg = turn.querySelector('[data-message-author-role="assistant"]');
-                if (!msg) continue;
-                const len = (msg.textContent || '').length;
-                if (len > bestLen) { bestLen = len; bestTurn = turn; }
-            }
-            if (bestTurn && bestLen > 50) {
-                // 在该 turn 里找复制按钮
-                const btn = bestTurn.querySelector('[data-testid="copy-turn-action-button"]');
-                if (btn) {
-                    const p = visiblePos(btn);
-                    if (p) return p;
-                }
-                // aria-label 含 copy
-                const byLabel = Array.from(bestTurn.querySelectorAll('button')).find(b =>
-                    (b.getAttribute('aria-label') || '').toLowerCase().includes('copy')
-                );
-                if (byLabel) {
-                    const p = visiblePos(byLabel);
-                    if (p) return p;
-                }
+        // 向上找包含它的 turn 容器（任意祖先）
+        function findCopyBtn(root) {
+            // testid 优先
+            const byId = root.querySelector('[data-testid="copy-turn-action-button"]');
+            if (byId) return byId;
+            // aria-label 含 copy
+            const btns = Array.from(root.querySelectorAll('button'));
+            return btns.find(b => (b.getAttribute('aria-label') || '').toLowerCase().includes('copy')) || null;
+        }
+
+        // 从消息本身向上最多遍历 8 层祖先找按钮
+        let node = bestMsg;
+        for (let i = 0; i < 8; i++) {
+            if (!node || !node.parentElement) break;
+            node = node.parentElement;
+            const btn = findCopyBtn(node);
+            if (btn) {
+                btn.click();
+                return {ok: true, btnText: btn.getAttribute('aria-label') || btn.getAttribute('data-testid') || ''};
             }
         }
 
-        // 降级：全页面找，取最靠下的（最新消息）
+        // 降级：全页面所有 copy 按钮，点最后一个
         const allCopy = Array.from(document.querySelectorAll('[data-testid="copy-turn-action-button"]'));
         if (allCopy.length) {
-            // 找y坐标最大（最靠下）且可见的
-            let best = null, bestY = -Infinity;
-            for (const btn of allCopy) {
-                const r = btn.getBoundingClientRect();
-                if (r.width > 0 && r.height > 0 && r.y > bestY) {
-                    bestY = r.y;
-                    best = { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-                }
-            }
-            if (best) return best;
+            allCopy[allCopy.length - 1].click();
+            return {ok: true, btnText: 'fallback-testid'};
         }
-        // aria-label 含 copy，取最靠下
         const byLabel = Array.from(document.querySelectorAll('button')).filter(b =>
-            (b.getAttribute('aria-label') || '').toLowerCase().includes('copy')
-        );
+            (b.getAttribute('aria-label') || '').toLowerCase().includes('copy'));
         if (byLabel.length) {
-            let best = null, bestY = -Infinity;
-            for (const btn of byLabel) {
-                const r = btn.getBoundingClientRect();
-                if (r.width > 0 && r.height > 0 && r.y > bestY) {
-                    bestY = r.y; best = { x: r.x + r.width/2, y: r.y + r.height/2 };
-                }
-            }
-            if (best) return best;
+            byLabel[byLabel.length - 1].click();
+            return {ok: true, btnText: 'fallback-label'};
         }
-        // 调试
-        window.__debug_btns = Array.from(document.querySelectorAll('button')).map(b => ({
-            text: b.textContent.trim().slice(0, 30),
-            label: b.getAttribute('aria-label') || '',
-            testid: b.getAttribute('data-testid') || '',
-            visible: b.getBoundingClientRect().width > 0,
-        }));
-        return null;
+
+        return {ok: false, reason: `no copy btn found, msgs=${msgs.length}, bestLen=${bestLen}`};
     }"""
 
-    pos = None
-    deadline = _t.time() + 10.0  # 最多等10秒
-    hover_interval = 1.0  # 每1秒重新hover一次
-    last_hover = 0.0
-    while _t.time() < deadline:
-        # 每1秒重新hover一次，确保按钮保持显示状态
-        now = _t.time()
-        if now - last_hover > hover_interval:
-            try:
-                hover_pos = page.evaluate("""() => {
-                    const els = Array.from(document.querySelectorAll(
-                        '[data-message-author-role="assistant"]'));
-                    if (!els.length) return null;
-                    let best = els[els.length - 1];
-                    let bestLen = (best.textContent || '').length;
-                    for (const el of els) {
-                        const len = (el.textContent || '').length;
-                        if (len > bestLen) { bestLen = len; best = el; }
-                    }
-                    best.scrollIntoView({ block: 'end', behavior: 'instant' });
-                    const r = best.getBoundingClientRect();
-                    return r.width > 0 ? { x: r.x + r.width/2, y: r.y + r.height - 10 } : null;
-                }""")
-                if hover_pos:
-                    page.mouse.move(hover_pos["x"], hover_pos["y"])
-                last_hover = now
-            except Exception:
-                pass
-        pos = page.evaluate(JS_FIND_COPY)
-        if pos:
-            break
-        _t.sleep(0.3)
-
-    if pos:
+    # 最多尝试 3 次（等待生成完成后按钮才可点击）
+    for attempt in range(3):
         try:
-            page.mouse.click(pos["x"], pos["y"])
-            _t.sleep(1.5)
-            result = pyperclip.paste()
-            if result and result != "__CLEAR__" and len(result) > 50:
-                print(f"  ✅ ChatGPT 复制按钮成功（{len(result)} 字符 Markdown）")
-                return result
+            res = page.evaluate(JS_CLICK_COPY)
+            if res and res.get('ok'):
+                _t.sleep(1.5)  # 等剪贴板写入
+                clip = pyperclip.paste()
+                if clip and clip != "__CLEAR__" and len(clip) > 50:
+                    print(f"  ✅ ChatGPT 复制按钮成功（{len(clip)} 字符 Markdown，btn={res.get('btnText')}）")
+                    return clip
+                # 剪贴板内容不对，等一下再试
+                _t.sleep(1.0)
+            else:
+                reason = res.get('reason', '?') if res else '?'
+                if attempt == 2:
+                    print(f"  ⚠️  JS click 找不到复制按钮: {reason}")
+                _t.sleep(2.0)
         except Exception as e:
-            print(f"  ⚠️  ChatGPT 点击复制按钮失败: {e}")
-    else:
-        # 打印调试信息
-        try:
-            debug_btns = page.evaluate("window.__debug_btns || []")
-            visible = [b for b in (debug_btns or []) if b.get('visible')]
-            print(f"  [调试] ChatGPT 页面可见按钮({len(visible)}个):")
-            for b in visible[:8]:
-                print(f"    text='{b['text']}' label='{b['label']}' testid='{b['testid']}'")
-        except Exception:
-            pass
+            if attempt == 2:
+                print(f"  ⚠️  JS click 异常: {e}")
+            _t.sleep(1.0)
 
-    # 详细调试：打印当前DOM状态帮助诊断
-    try:
-        dom_info = page.evaluate("""() => {
-            const asst = document.querySelectorAll('[data-message-author-role="assistant"]');
-            const turns = document.querySelectorAll('article[data-testid^="conversation-turn"]');
-            const copyBtns = document.querySelectorAll('[data-testid="copy-turn-action-button"]');
-            const stopBtns = document.querySelectorAll('button[data-testid*="stop"]');
-            const allBtns = document.querySelectorAll('button');
-            const visibleBtns = Array.from(allBtns).filter(b => b.getBoundingClientRect().width > 0);
-            return {
-                asst: asst.length,
-                turns: turns.length,
-                copyBtns: copyBtns.length,
-                stopBtns: stopBtns.length,
-                allBtns: allBtns.length,
-                visibleBtns: visibleBtns.length,
-                lastAsstLen: asst.length ? (asst[asst.length-1].textContent||'').length : 0,
-                visibleBtnLabels: visibleBtns.slice(0,6).map(b => b.getAttribute('aria-label')||b.getAttribute('data-testid')||b.textContent.trim().slice(0,20)),
-            };
-        }""")
-        print(f"  [复制按钮调试] asst={dom_info.get('asst')} turns={dom_info.get('turns')} "
-              f"copyBtns={dom_info.get('copyBtns')} stopBtns={dom_info.get('stopBtns')} "
-              f"lastAsstLen={dom_info.get('lastAsstLen')} visibleBtns={dom_info.get('visibleBtns')}")
-        print(f"  [复制按钮调试] 可见按钮labels: {dom_info.get('visibleBtnLabels')}")
-    except Exception as _de:
-        print(f"  [复制按钮调试] DOM info失败: {_de}")
-
-    print("  ⚠️  未找到 ChatGPT 复制按钮，回退到 DOM 文字提取")
+    print("  ❌ 复制按钮 3 次尝试均失败")
     return ""
 
 
@@ -1517,7 +1411,7 @@ def wait_for_answer(page, timeout: int = 300, stable_secs: int = STABLE_SECS,
                 "GPT-4o is at capacity", "reached capacity", "at capacity",
                 "Upgrade to continue", "Upgrade to Plus",
                 "达到了上限", "发送了太多消息",
-                "conversation history", "history rate limit",
+                "history rate limit",
                 "访问太多", "限制访问", "晚些时候再",
             ]
             # 临时限速 → RATE_LIMITED（等待后重试，不切换账号）

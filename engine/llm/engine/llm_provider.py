@@ -159,16 +159,11 @@ class ChatGPTBrowserLLM(BaseLLM):
         if not account_dir:
             raise ValueError(f"ChatGPT 账号 {self._account} 不存在")
 
-        # Playwright sync API 会检查当前是否有 running asyncio loop（通过 greenlet 机制）
-        # 若有，抛出 "using Playwright Sync API inside asyncio loop" 错误
-        # 在旧 playwright 实例 stop() 后，Python 3.14 有时会遗留 loop 状态
-        # 修复：检测并清理遗留的 closed/stopped loop，让 Playwright 能创建新 loop
+        # Playwright sync API 不能在有 running asyncio loop 的线程中调用
+        # 无条件清除当前线程的 event loop，保证 sync_playwright().start() 能正常工作
         try:
-            current_loop = asyncio.get_event_loop()
-            if current_loop.is_closed():
-                # loop 已关闭但仍被设为当前 loop，清除它
-                asyncio.set_event_loop(None)
-        except RuntimeError:
+            asyncio.set_event_loop(None)
+        except Exception:
             pass
 
         self._playwright = sync_playwright().start()
@@ -237,8 +232,10 @@ class ChatGPTBrowserLLM(BaseLLM):
                         bot.send_prompt(self._page, combined, new_conversation=True)
                         print(f"  [单段发送] 等待新回复（当前{msg_before}条消息，需≥{msg_before+1}条）...")
                         answer = bot.wait_for_answer(self._page, min_msg_count=msg_before + 1) or ""
+                        import chatgpt_bot as _cgb
+                        if str(answer).strip() == "FREE_QUOTA_EXCEEDED" or "FREE_QUOTA_EXCEEDED" in str(answer):
+                            raise _cgb.SessionExpired("单段回复 FREE_QUOTA_EXCEEDED，切换账号")
                         if "CHATGPT_ERROR" in str(answer) or str(answer).strip() == "CHATGPT_ERROR":
-                            import chatgpt_bot as _cgb
                             raise _cgb.SessionExpired("单段回复 CHATGPT_ERROR")
                         # 截断检测：缺 Part 则追问继续
                         all_parts = [answer]
@@ -267,6 +264,8 @@ class ChatGPTBrowserLLM(BaseLLM):
                             msg_before2 = bot.get_assistant_msg_count(self._page)
                             bot.send_prompt(self._page, cont_msg)
                             cont_answer = bot.wait_for_answer(self._page, min_msg_count=msg_before2 + 1) or ""
+                            if str(cont_answer).strip() == "FREE_QUOTA_EXCEEDED":
+                                raise _cgb.SessionExpired("追问回复 FREE_QUOTA_EXCEEDED，切换账号")
                             if cont_answer and "CHATGPT_ERROR" not in cont_answer:
                                 all_parts.append(cont_answer)
                             else:
@@ -528,11 +527,17 @@ class DeepSeekBrowserLLM(BaseLLM):
         if not account_dir:
             raise ValueError(f"DeepSeek 账号 {self._account} 不存在")
 
+        # Playwright sync API 不能在有 running asyncio loop 的线程中调用
+        # 清除当前线程的 event loop，保证 sync_playwright().start() 能正常工作
         try:
-            current_loop = asyncio.get_event_loop()
-            if current_loop.is_closed():
-                asyncio.set_event_loop(None)
+            loop = asyncio.get_running_loop()
+            # 有 running loop：需要在子线程里启动 playwright
+            # （通常不走这里，因为 _raw_invoke 已经做了线程分离）
         except RuntimeError:
+            loop = None
+        try:
+            asyncio.set_event_loop(None)
+        except Exception:
             pass
 
         self._playwright = sync_playwright().start()

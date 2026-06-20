@@ -253,6 +253,18 @@ class ChapterPipeline:
                         suggestions = review_result.get("improvement_suggestions", [])
                         rewrite_focus = review_result.get("rewrite_focus", "")
                         prev_score = review_result.get("total_score", 0)
+                        cur_score = locals().get("score", 0)  # score 可能在第1次attempt时尚未赋值
+                        # 第3次（最后一次）attempt，或分数比上一轮更低，从零重新写
+                        if attempt == MAX_REWRITES or (prev_score > 0 and cur_score > 0 and cur_score < prev_score - 5):
+                            print(f"  [Pipeline] 分数{cur_score}，从零重新撰写（不叠加旧内容）...")
+                            new_content = writer.write(
+                                primary_node, research_data, chapter_num, related_nodes
+                            )
+                            if new_content:
+                                _save_raw(chapter_num, node_id, "writer", new_content,
+                                          attempt=attempt, inner_round=1)
+                            chapter_content = new_content or chapter_content
+                            continue
                         print(f"  [Pipeline] 基于上一版本（{prev_score}分）和评审反馈修改...")
                         new_content = _apply_improvements(
                             writer, primary_node, research_data,
@@ -288,12 +300,14 @@ class ChapterPipeline:
                     )
                 continue
 
-            # ── Step 3: Review（DeepSeek 浏览器常驻，只开新对话）────────────
-            reviewer = self._get_reviewer()
+            # ── Step 3: Review（Reviewer 用独立子进程跑 DeepSeek，完全隔离 Playwright 状态）─────
+            reviewer = ReviewerAgent(provider=self._reviewer_provider, account=self._reviewer_account)
             try:
                 review_result = reviewer.review(chapter_content, node_name, chapter_num)
             except Exception as e:
+                import traceback as _tb
                 print(f"  [Pipeline] Review 失败，使用默认分数: {e}")
+                _tb.print_exc()
                 review_result = {"total_score": 80, "passed": False, "rewrite_required": False,
                                  "critical_issues": [], "improvement_suggestions": []}
 
@@ -493,6 +507,14 @@ def _apply_improvements(
 4. 确保 Part 6 有完整可运行的 Python 代码示例
 
 直接输出修改后的完整 Markdown 章节内容，不要有任何说明文字。严禁只输出部分内容或说明改了什么。"""
+
+    # Playwright page 对象只能在创建它的线程（主线程）里调用
+    # 直接在主线程调用，但先清除 Reviewer 子线程可能遗留的 asyncio loop
+    import asyncio as _asyncio
+    try:
+        _asyncio.set_event_loop(None)
+    except Exception:
+        pass
 
     try:
         if hasattr(writer.llm, "chat_multipart"):

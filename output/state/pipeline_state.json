@@ -1,4 +1,49 @@
 {
-  "completed": {},
+  "completed": {
+    "KN-C-000001": {
+      "node_id": "KN-C-000001",
+      "node_name": "LLM (Large Language Model)",
+      "chapter_num": 1,
+      "status": "success",
+      "score": 92,
+      "attempts": 1,
+      "output_path": "D:\\My\\AIEducationOS\\output\\chapters\\ch01_KN-C-000001.md",
+      "error": null,
+      "duration_seconds": 217.1136384010315
+    },
+    "KN-C-000002": {
+      "node_id": "KN-C-000002",
+      "node_name": "Token",
+      "chapter_num": 2,
+      "status": "success",
+      "score": 88,
+      "attempts": 1,
+      "output_path": "D:\\My\\AIEducationOS\\output\\chapters\\ch02_KN-C-000002.md",
+      "error": null,
+      "duration_seconds": 187.70389938354492
+    },
+    "KN-C-000003": {
+      "node_id": "KN-C-000003",
+      "node_name": "Context Window",
+      "chapter_num": 3,
+      "status": "success",
+      "score": 92,
+      "attempts": 1,
+      "output_path": "D:\\My\\AIEducationOS\\output\\chapters\\ch03_KN-C-000003.md",
+      "error": null,
+      "duration_seconds": 218.61795806884766
+    },
+    "KN-C-000004": {
+      "node_id": "KN-C-000004",
+      "node_name": "Hallucination（幻觉）",
+      "chapter_num": 4,
+      "status": "success",
+      "score": 93,
+      "attempts": 1,
+      "output_path": "D:\\My\\AIEducationOS\\output\\chapters\\ch04_KN-C-000004.md",
+      "error": null,
+      "duration_seconds": 186.9711434841156
+    }
+  },
   "failed": []
 }
