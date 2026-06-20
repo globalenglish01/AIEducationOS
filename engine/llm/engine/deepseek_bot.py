@@ -973,9 +973,35 @@ def _human_move(page, element) -> None:
 
 _PASTE_CHUNK = 2000
 
+def _dismiss_dialogs(page) -> None:
+    """关闭新账号首次登录时可能出现的引导弹窗/同意条款/cookie提示。"""
+    dismiss_sels = [
+        # 通用关闭/跳过按钮
+        'button:has-text("跳过")', 'button:has-text("Skip")',
+        'button:has-text("Close")', 'button:has-text("关闭")',
+        'button:has-text("我知道了")', 'button:has-text("Got it")',
+        'button:has-text("同意")', 'button:has-text("Accept")',
+        'button:has-text("继续")', 'button:has-text("Continue")',
+        'button:has-text("确定")', 'button:has-text("OK")',
+        '[aria-label="Close"]', '[data-testid="close-button"]',
+        # DeepSeek 特定
+        'button:has-text("开始使用")', 'button:has-text("Get started")',
+        '.modal button', '[role="dialog"] button',
+    ]
+    for sel in dismiss_sels:
+        try:
+            btn = page.locator(sel)
+            if btn.count() > 0 and btn.first.is_visible(timeout=300):
+                btn.first.click()
+                time.sleep(0.5)
+        except Exception:
+            pass
+
+
 def _find_input(page):
     """尝试所有选择器找输入框，最多等待 20 秒；失败时用 JS 自动扫描页面动态找。"""
     for attempt in range(4):
+        _dismiss_dialogs(page)  # 每次重试前先清除可能的弹窗
         for sel in _INPUT_SELECTORS:
             try:
                 loc = page.locator(sel)
