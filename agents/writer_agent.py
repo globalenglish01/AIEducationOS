@@ -158,6 +158,7 @@ def _normalize_markdown(content: str) -> str:
     不依赖重试。修复顺序很重要，不要随意调整。
 
     修复项：
+    0. 去掉 AI 加在章节内容前面的说明性前导语（如"下面是修改后的完整章节内容。"）
     A. python/bash块中包含大量中文叙述 → 解包为普通段落
     B. 裸语言名（"Python\\n代码"）→ 包裹为正确代码块
     C. 未加语言标识的裸 ``` → 补为 ```python
@@ -167,6 +168,15 @@ def _normalize_markdown(content: str) -> str:
     G. 代码块未闭合 → 补关闭围栏
     """
     import re
+
+    # ── 0：去掉 AI 在章节正文前加的说明性前导语 ─────────────────────────────────
+    # 匹配"# 第N章"之前的所有非章节内容（如"下面是修改后的完整章节内容。"）
+    first_heading = re.search(r'^#\s+第\d+章', content, re.MULTILINE)
+    if first_heading and first_heading.start() > 0:
+        # 只有当 # 之前的内容全是说明性文字（无代码块、无正文）时才截断
+        preamble = content[:first_heading.start()]
+        if not re.search(r'```|^##\s+Part', preamble, re.MULTILINE):
+            content = content[first_heading.start():]
 
     # ── A：解包错误包裹的中文叙事 python/bash 代码块 ─────────────────────────────
     def _maybe_unwrap_chinese(m: re.Match) -> str:
