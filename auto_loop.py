@@ -152,8 +152,8 @@ def run_chapter(chapter_num: int, force: bool = False) -> bool:
         "--start", str(chapter_num),
         "--end", str(chapter_num),
         "--no-deploy",
-        "--account", "2",          # zhaoyx ChatGPT（acc1/acc3 已限额）
-        "--reviewer-account", "3", # lucyzhaoaa DeepSeek（acc4 LucyQQ 被禁言至2026-06-21 12:31）
+        "--account", "5",          # lucy82910 ChatGPT（新鲜账号）
+        "--reviewer-account", "6", # globalenglish DeepSeek（新鲜账号）
     ]
     if force:
         cmd.append("--force")
