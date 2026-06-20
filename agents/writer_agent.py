@@ -63,9 +63,7 @@ class WriterAgent:
         import json
         research_text = json.dumps(research_data, ensure_ascii=False, indent=2)
 
-        user_message = f"""请为第{chapter_num}章撰写完整内容。
-
-章节信息：
+        base_context = f"""章节信息：
 - 章节编号：第{chapter_num}章
 - 知识节点：{node_id} - {node_name}
 - 层级标注：[{level}]
@@ -75,31 +73,47 @@ class WriterAgent:
 {context}
 
 研究员素材（请充分利用以下内容）：
-{research_text}
+{research_text}"""
 
-写作要求：
-1. 严格按15个Part结构写完整章节
-2. 在章节标题后标注 [{level}]
-3. Part 1 必须使用研究员提供的认知冲突场景开头
-4. Part 6 的Demo代码必须是完整可运行的Python代码
-5. Part 7 使用研究员提供的真实案例
-6. Part 9 使用研究员提供的面试题
-7. 总字数目标：6000-8000字
+        # 分3批生成，每批5个Part，避免ChatGPT单次输出截断
+        batch_prompts = [
+            f"""{base_context}
 
-直接输出 Markdown 格式的章节内容，不要有任何说明文字。"""
+请撰写第{chapter_num}章「{node_name}」的 **Part 1 到 Part 5**（共5个Part）。
+- 章节标题格式：# 第{chapter_num}章 {node_name} [{level}]
+- Part 1 必须使用研究员提供的认知冲突场景开头
+- 直接输出 Markdown，不要任何说明文字，不要说"继续"或"后续"。""",
+
+            f"""请继续撰写第{chapter_num}章「{node_name}」的 **Part 6 到 Part 10**（共5个Part）。
+- Part 6 的Demo代码必须是完整可运行的Python代码
+- Part 7 使用研究员提供的真实案例
+- 直接输出 Markdown，从 ## Part 6 开始，不要重复已有内容。""",
+
+            f"""请继续撰写第{chapter_num}章「{node_name}」的 **Part 11 到 Part 15**（共5个Part）。
+- Part 9（已在上一批）使用研究员提供的面试题
+- 直接输出 Markdown，从 ## Part 11 开始，不要重复已有内容。""",
+        ]
 
         last_output = ""
         for attempt in range(1, max_retries + 1):
             try:
                 print(f"  [Writer] 正在撰写第{chapter_num}章 {node_id} [尝试 {attempt}/{max_retries}]...")
-                # 使用多段发送避免 ChatGPT token 截断（超过 12000 字符自动分段）
-                if hasattr(self.llm, "chat_multipart"):
-                    response = self.llm.chat_multipart(SYSTEM_PROMPT, user_message)
-                else:
-                    response = self.llm.chat([
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": user_message},
-                    ])
+                if attempt > 1:
+                    self.llm.close()
+
+                parts_collected = []
+                for batch_idx, batch_msg in enumerate(batch_prompts):
+                    print(f"  [Writer] 分批生成 Part {batch_idx*5+1}-{batch_idx*5+5}...")
+                    if hasattr(self.llm, "chat_multipart") and batch_idx == 0:
+                        resp = self.llm.chat_multipart(SYSTEM_PROMPT, batch_msg)
+                    else:
+                        resp = self.llm.chat([
+                            {"role": "system", "content": SYSTEM_PROMPT},
+                            {"role": "user", "content": batch_msg},
+                        ])
+                    parts_collected.append(resp.strip())
+
+                response = "\n\n".join(parts_collected)
                 if _validate_chapter(response):
                     response = _normalize_markdown(response)
                     print(f"  [Writer] 第{chapter_num}章撰写完成（{len(response)}字符）")
@@ -108,7 +122,6 @@ class WriterAgent:
                     last_output = response
                     missing = _find_missing_parts(response)
                     print(f"  [Writer] 章节结构不完整，缺少: {missing}，重试...")
-                    user_message += f"\n\n[注意：上次输出缺少以下Part，请补充完整: {', '.join(missing)}]"
             except Exception as e:
                 print(f"  [Writer] 写作出错（尝试{attempt}）: {e}")
                 last_output = ""
