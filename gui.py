@@ -219,12 +219,14 @@ class App(ctk.CTk):
         self._tabview.add("📖 章节查看")
         self._tabview.add("🗂 知识节点")
         self._tabview.add("🚀 部署")
+        self._tabview.add("🔑 账号管理")
 
         self._build_gen_tab(self._tabview.tab("▶ 生成控制"))
         self._build_status_tab(self._tabview.tab("📊 Pipeline 状态"))
         self._build_viewer_tab(self._tabview.tab("📖 章节查看"))
         self._build_nodes_tab(self._tabview.tab("🗂 知识节点"))
         self._build_deploy_tab(self._tabview.tab("🚀 部署"))
+        self._build_accounts_tab(self._tabview.tab("🔑 账号管理"))
 
         self._status_bar = ctk.CTkLabel(
             self, text="就绪", anchor="w",
@@ -890,6 +892,140 @@ class App(ctk.CTk):
 
     def _set_status(self, msg: str):
         self._status_bar.configure(text=msg)
+
+    # ── Tab 6：账号管理 ────────────────────────────────────────────────────────
+
+    def _build_accounts_tab(self, parent):
+        """显示所有账号状态，支持一键打开 Chrome 登录 ChatGPT 或 DeepSeek。"""
+        import shutil
+
+        ACCOUNTS_FILE = ROOT / "engine" / "llm" / "accounts.json"
+        CHROME = (
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+            if Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe").exists()
+            else r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+        )
+
+        def load_accounts():
+            if ACCOUNTS_FILE.exists():
+                return json.loads(ACCOUNTS_FILE.read_text(encoding="utf-8")).get("accounts", [])
+            return []
+
+        def get_chatgpt_profile(acc):
+            return Path(acc["storage_dir"])
+
+        def get_deepseek_profile(acc):
+            p = Path(acc["storage_dir"])
+            ds = p.parent / (p.name + "_deepseek")
+            return ds
+
+        def has_cookies(profile_dir: Path) -> bool:
+            return (profile_dir / "Default" / "Cookies").exists()
+
+        def open_chrome(profile_dir: Path, url: str, acc_name: str, platform: str):
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                subprocess.Popen([CHROME, f"--user-data-dir={profile_dir}", url])
+                self._acc_log(f"✅ 已打开 Chrome → {platform}（{acc_name}），请登录后刷新状态")
+            except Exception as e:
+                self._acc_log(f"❌ 启动 Chrome 失败: {e}")
+
+        # 顶部说明
+        info = ctk.CTkFrame(parent, fg_color=("#e8f4ff", "#0f2a40"), corner_radius=8)
+        info.pack(fill="x", padx=8, pady=(8, 4))
+        ctk.CTkLabel(
+            info,
+            text="账号管理：查看各账号登录状态，点「登录」按钮用 Chrome 打开对应账号\n"
+                 "登录完成后点「刷新」更新状态。ChatGPT 和 DeepSeek 分开管理。",
+            font=("", 12), justify="left", anchor="w",
+            text_color=("#1a5fa8", "#88ccff"),
+        ).pack(padx=12, pady=8, anchor="w")
+
+        pane = ctk.CTkFrame(parent)
+        pane.pack(fill="both", expand=True, padx=8, pady=4)
+
+        # 左侧账号列表
+        left = ctk.CTkScrollableFrame(pane, width=620)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 6))
+
+        self._acc_rows_frame = left
+
+        # 右侧日志
+        right = ctk.CTkFrame(pane, width=260)
+        right.pack(side="left", fill="y")
+        right.pack_propagate(False)
+        ctk.CTkLabel(right, text="📋 操作日志", font=("", 12, "bold")).pack(pady=(8, 4))
+        self._acc_log_box = ctk.CTkTextbox(right, font=("Consolas", 10), state="disabled")
+        self._acc_log_box.pack(fill="both", expand=True, padx=4, pady=4)
+
+        def refresh():
+            for w in left.winfo_children():
+                w.destroy()
+
+            accounts = load_accounts()
+            if not accounts:
+                ctk.CTkLabel(left, text="未找到 accounts.json", text_color="red").pack(pady=20)
+                return
+
+            # 表头
+            hdr = ctk.CTkFrame(left, fg_color=("#d0e8ff", "#1a3a5c"), corner_radius=6)
+            hdr.pack(fill="x", padx=4, pady=(4, 2))
+            for col, w in [("编号", 40), ("名称", 100), ("ChatGPT", 100), ("DeepSeek", 100),
+                           ("登录ChatGPT", 110), ("登录DeepSeek", 110)]:
+                ctk.CTkLabel(hdr, text=col, width=w, font=("", 11, "bold"), anchor="w").pack(side="left", padx=4)
+
+            for acc in accounts:
+                num = acc.get("id", "?")[-8:] if "id" in acc else "?"
+                # 找编号
+                accs = load_accounts()
+                idx = next((str(i+1) for i, a in enumerate(accs) if a.get("id") == acc.get("id")), "?")
+
+                cgpt_profile = get_chatgpt_profile(acc)
+                ds_profile = get_deepseek_profile(acc)
+                cgpt_ok = has_cookies(cgpt_profile)
+                ds_ok = has_cookies(ds_profile)
+
+                row = ctk.CTkFrame(left, fg_color=("gray90", "gray20"), corner_radius=4)
+                row.pack(fill="x", padx=4, pady=2)
+
+                ctk.CTkLabel(row, text=idx, width=40, anchor="w", font=("", 11)).pack(side="left", padx=4)
+                ctk.CTkLabel(row, text=acc.get("name", "?"), width=100, anchor="w", font=("", 11)).pack(side="left", padx=4)
+                ctk.CTkLabel(
+                    row, text="✅ 已登录" if cgpt_ok else "❌ 未登录",
+                    width=100, anchor="w", font=("", 11),
+                    text_color=COLORS["green"] if cgpt_ok else COLORS["red"]
+                ).pack(side="left", padx=4)
+                ctk.CTkLabel(
+                    row, text="✅ 已登录" if ds_ok else "❌ 未登录",
+                    width=100, anchor="w", font=("", 11),
+                    text_color=COLORS["green"] if ds_ok else COLORS["red"]
+                ).pack(side="left", padx=4)
+
+                name = acc.get("name", "账号")
+                ctk.CTkButton(
+                    row, text="🌐 登录ChatGPT", width=110, height=26, font=("", 10),
+                    fg_color=COLORS["blue"],
+                    command=lambda p=cgpt_profile, n=name: open_chrome(p, "https://chatgpt.com", n, "ChatGPT")
+                ).pack(side="left", padx=4, pady=3)
+
+                ctk.CTkButton(
+                    row, text="🤖 登录DeepSeek", width=110, height=26, font=("", 10),
+                    fg_color=("#6c3483", "#9b59b6"),
+                    command=lambda p=ds_profile, n=name: open_chrome(p, "https://chat.deepseek.com", n, "DeepSeek")
+                ).pack(side="left", padx=4, pady=3)
+
+        ctk.CTkButton(
+            parent, text="🔄 刷新账号状态", fg_color=COLORS["blue"],
+            command=refresh
+        ).pack(pady=(0, 6))
+
+        refresh()
+
+    def _acc_log(self, msg: str):
+        self._acc_log_box.configure(state="normal")
+        self._acc_log_box.insert("end", f"{time.strftime('%H:%M:%S')} {msg}\n")
+        self._acc_log_box.see("end")
+        self._acc_log_box.configure(state="disabled")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
