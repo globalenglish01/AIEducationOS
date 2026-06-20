@@ -123,7 +123,11 @@ class BaseLLM(ABC):
 # ─────────────────────────────────────────────────────────────────────────────
 
 class ChatGPTBrowserLLM(BaseLLM):
-    """封装 chatgpt_bot.py 的 Playwright 自动化。"""
+    """封装 chatgpt_bot.py 的 Playwright 自动化。
+
+    所有 Playwright 操作在专用 worker 线程里执行——该线程永远没有 asyncio loop，
+    避免 Windows ProactorEventLoop 污染导致的 "Playwright Sync API inside asyncio loop" 错误。
+    """
 
     def __init__(self, account: str = "1"):
         self._account = account
@@ -132,6 +136,47 @@ class ChatGPTBrowserLLM(BaseLLM):
         self._page = None
         self._chrome_proc = None
         self._lock = threading.Lock()
+
+        # 专用 Playwright worker 线程：所有 page 操作只在这个线程里执行
+        import queue as _queue
+        self._task_queue: _queue.Queue = _queue.Queue()
+        self._worker = threading.Thread(target=self._worker_loop, daemon=True,
+                                        name=f"chatgpt-playwright-{account}")
+        self._worker.start()
+
+    def _worker_loop(self) -> None:
+        """专用线程主循环：从 queue 取 (fn, result_holder) 并执行，永不设置 asyncio loop。"""
+        import asyncio as _asyncio
+        try:
+            _asyncio.set_event_loop(None)
+        except Exception:
+            pass
+        while True:
+            try:
+                item = self._task_queue.get()
+                if item is None:
+                    break  # shutdown signal
+                fn, result_holder = item
+                try:
+                    result_holder[0] = fn()
+                except Exception as e:
+                    result_holder[1] = e
+                finally:
+                    result_holder[2].set()  # signal done
+            except Exception:
+                pass
+
+    def _run_in_worker(self, fn, timeout: int = 700):
+        """在 worker 线程里运行 fn()，阻塞等待结果，timeout 秒后抛出 TimeoutError。"""
+        import threading as _th
+        done_event = _th.Event()
+        result_holder = [None, None, done_event]  # [result, exception, event]
+        self._task_queue.put((fn, result_holder))
+        if not done_event.wait(timeout=timeout):
+            raise TimeoutError(f"ChatGPT worker 超时（{timeout}秒）")
+        if result_holder[1] is not None:
+            raise result_holder[1]
+        return result_holder[0]
 
     # ── 懒启动 ──────────────────────────────────────────────────────────────
 
@@ -174,29 +219,38 @@ class ChatGPTBrowserLLM(BaseLLM):
     # ── BaseLLM 实现 ─────────────────────────────────────────────────────────
 
     def _raw_invoke(self, prompt: str) -> str:
-        import chatgpt_bot as bot
-        with self._lock:
-            for attempt in range(2):
-                try:
-                    self._ensure_browser()
-                    msg_before = bot.get_assistant_msg_count(self._page)
-                    bot.send_prompt(self._page, prompt)
-                    answer = bot.wait_for_answer(self._page, min_msg_count=msg_before + 1)
-                    return answer or ""
-                except Exception as e:
-                    err_str = str(e)
-                    # CDP 连接断开 / 页面关闭：彻底关闭 playwright 后重新打开浏览器
-                    is_cdp_error = any(kw in err_str.lower() for kw in
-                                       ("closed", "target", "context", "cdp 连接断开"))
-                    if is_cdp_error and attempt == 0:
-                        print(f"  🔄 ChatGPT 浏览器连接断开，重启后重试... ({err_str[:80]})")
-                        self.shutdown()  # 彻底关闭 playwright（含 loop cleanup），避免 asyncio 残留
-                        continue
-                    raise
-            return ""
+        def _do():
+            import chatgpt_bot as bot
+            with self._lock:
+                for attempt in range(2):
+                    try:
+                        self._ensure_browser()
+                        msg_before = bot.get_assistant_msg_count(self._page)
+                        bot.send_prompt(self._page, prompt)
+                        answer = bot.wait_for_answer(self._page, min_msg_count=msg_before + 1)
+                        return answer or ""
+                    except Exception as e:
+                        err_str = str(e)
+                        is_cdp_error = any(kw in err_str.lower() for kw in
+                                           ("closed", "target", "context", "cdp 连接断开"))
+                        if is_cdp_error and attempt == 0:
+                            print(f"  🔄 ChatGPT 浏览器连接断开，重启后重试... ({err_str[:80]})")
+                            self.shutdown()
+                            continue
+                        raise
+                return ""
+        return self._run_in_worker(_do)
 
     def chat_multipart(self, system_prompt: str, user_message: str,
                        chunk_size: int = 12000) -> str:
+        """在专用 worker 线程里运行所有 Playwright 操作，避免 asyncio loop 污染。"""
+        return self._run_in_worker(
+            lambda: self._chat_multipart_sync(system_prompt, user_message, chunk_size),
+            timeout=900,
+        )
+
+    def _chat_multipart_sync(self, system_prompt: str, user_message: str,
+                             chunk_size: int = 12000) -> str:
         """
         等待模式多段发送：将超长内容拆成 ≤chunk_size 的段，
         每段用「这是第N部分，共M部分」等待模式包装，最后发 ===START=== 触发生成。
@@ -408,83 +462,81 @@ class ChatGPTBrowserLLM(BaseLLM):
         return ""
 
     def stream_chat(self, messages: list[dict]) -> Generator[str, None, None]:
-        """实时轮询页面增量文本，实现真流式输出。"""
-        import chatgpt_bot as bot
-        prompt = _messages_to_prompt(messages)
-        with self._lock:
-            self._ensure_browser()
-            bot.send_prompt(self._page, prompt)
-            # 轮询增量
-            prev = ""
-            deadline = time.time() + 300
-            while time.time() < deadline:
-                time.sleep(1)
-                current = bot.get_last_answer(self._page)
-                if current and current != prev:
-                    delta = current[len(prev):]
-                    if delta:
-                        yield delta
-                    prev = current
-                # 检测生成完成
-                if _is_chatgpt_done(self._page):
-                    # flush 剩余
-                    final = bot.get_last_answer(self._page)
-                    if final and final != prev:
-                        yield final[len(prev):]
-                    break
+        """stream_chat 通过 _raw_invoke 实现（同步收集结果后伪流式 yield）。"""
+        content = self.chat(messages)
+        for ch in content:
+            yield ch
 
     def health_check(self) -> bool:
-        try:
+        def _do():
             if self._page is None:
                 return False
             return not self._page.is_closed()
+        try:
+            return self._run_in_worker(_do, timeout=10)
         except Exception:
             return False
 
     def reset_conversation(self) -> None:
-        import chatgpt_bot as bot
-        if self._page:
-            try:
-                bot._new_conversation(self._page)
-            except Exception:
-                pass
+        def _do():
+            import chatgpt_bot as bot
+            if self._page:
+                try:
+                    bot._new_conversation(self._page)
+                except Exception:
+                    pass
+        try:
+            self._run_in_worker(_do, timeout=30)
+        except Exception:
+            pass
 
     def close(self) -> None:
-        """
-        章节结束时调用：只开启新对话，不关闭浏览器。
-        浏览器进程保持常驻，避免每章重新启动 Chrome 导致的 CF 验证和 session 问题。
-        真正退出时调用 shutdown()。
-        """
-        import chatgpt_bot as bot
-        if self._page and not self._page.is_closed():
-            try:
-                bot._new_conversation(self._page)
-                print("  [Browser] 开启新对话（浏览器保持运行）")
-            except Exception:
-                pass
+        """章节结束时调用：只开启新对话，不关闭浏览器。"""
+        def _do():
+            import chatgpt_bot as bot
+            if self._page and not self._page.is_closed():
+                try:
+                    bot._new_conversation(self._page)
+                    print("  [Browser] 开启新对话（浏览器保持运行）")
+                except Exception:
+                    pass
+        try:
+            self._run_in_worker(_do, timeout=30)
+        except Exception:
+            pass
 
     def shutdown(self) -> None:
         """真正关闭浏览器进程（程序退出时调用）。"""
+        def _do():
+            try:
+                if self._ctx:
+                    self._ctx.close()
+            except Exception:
+                pass
+            try:
+                if self._chrome_proc:
+                    self._chrome_proc.terminate()
+                    try:
+                        self._chrome_proc.wait(timeout=8)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            try:
+                if self._playwright:
+                    self._playwright.stop()
+            except Exception:
+                pass
+            self._page = self._ctx = self._playwright = self._chrome_proc = None
         try:
-            if self._ctx:
-                self._ctx.close()
+            self._run_in_worker(_do, timeout=30)
         except Exception:
             pass
+        # 停止 worker 线程
         try:
-            if self._chrome_proc:
-                self._chrome_proc.terminate()
-                try:
-                    self._chrome_proc.wait(timeout=8)
-                except Exception:
-                    pass
+            self._task_queue.put(None)
         except Exception:
             pass
-        try:
-            if self._playwright:
-                self._playwright.stop()
-        except Exception:
-            pass
-        self._page = self._ctx = self._playwright = self._chrome_proc = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
