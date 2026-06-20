@@ -542,7 +542,21 @@ def _apply_improvements(
             print(f"  [Pipeline] 改进版本过短（{len(response) if response else 0} 字符），保留原始版本")
             return original_content
     except Exception as e:
-        print(f"  [Pipeline] 改进写作失败: {e}，使用原版本")
+        err = str(e)
+        print(f"  [Pipeline] 改进写作失败: {err[:120]}，尝试writer.write()重写...")
+        # asyncio loop污染或page closed时，重置loop后用writer.write()完整批次重写
+        import asyncio as _asyncio2
+        try:
+            _asyncio2.set_event_loop(None)
+        except Exception:
+            pass
+        try:
+            response = writer.write(primary_node, research_data, chapter_num, related_nodes)
+            if response and len(response.strip()) >= 2000:
+                print(f"  [Pipeline] writer.write()重写成功 {len(response)} 字符")
+                return _normalize_md(response)
+        except Exception as e2:
+            print(f"  [Pipeline] writer.write()也失败: {e2}，使用原版本")
         return original_content
 
 
