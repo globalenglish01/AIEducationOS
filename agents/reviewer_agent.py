@@ -32,16 +32,12 @@ REWRITE_THRESHOLD = 85
 # 子进程 runner 脚本（独立进程运行 DeepSeek，结果写到临时 JSON 文件）
 _RUNNER_SCRIPT = """
 import sys, json, os
-# 子进程最开始就重置 asyncio loop，避免 Playwright Sync API 报 "inside the asyncio loop"
+# 清除当前线程的 event loop，让 Playwright sync_playwright() 自己创建新的
+# 不能设置 policy（DefaultEventLoopPolicy/WindowsSelectorEventLoopPolicy 在 3.14 均弃用）
+# WindowsSelectorEventLoopPolicy 的 SelectorEventLoop 还会导致 create_subprocess_exec NotImplementedError
 import asyncio as _asyncio
 try:
     _asyncio.set_event_loop(None)
-except Exception:
-    pass
-try:
-    import asyncio
-    if hasattr(asyncio, 'WindowsSelectorEventLoopPolicy'):
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 except Exception:
     pass
 sys.path.insert(0, sys.argv[1])  # ENGINE_INNER
@@ -201,11 +197,8 @@ class ReviewerAgent:
                     _asyncio.set_event_loop(None)
                 except Exception:
                     pass
-                try:
-                    if hasattr(_asyncio, 'WindowsSelectorEventLoopPolicy'):
-                        _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
-                except Exception:
-                    pass
+                # 不设置 policy（Python 3.14 所有 policy 均弃用，且 SelectorEventLoop 不支持子进程）
+                # set_event_loop(None) 已足够让 Playwright 自己创建正确的 loop
 
             t.join(timeout=5)
 
