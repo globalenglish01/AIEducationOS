@@ -78,6 +78,73 @@ CHAPTER_SLUGS: dict[str, str] = {
     "KN-C-000052": "aios-fcars",
     "KN-C-000053": "aios-chaos-engineering",
     "KN-C-000054": "aios-fine-tuning",
+    # Batch 10: MCP
+    "KN-C-000060": "aios-mcp",
+    "KN-C-000061": "aios-tool-schema-design",
+    "KN-C-000062": "aios-tool-path-sandbox",
+    "KN-C-000063": "aios-tool-injection",
+    "KN-C-000064": "aios-mcp-server-client",
+    # Batch 11: Memory
+    "KN-C-000065": "aios-short-term-memory",
+    "KN-C-000066": "aios-long-term-memory",
+    "KN-C-000067": "aios-context-compression",
+    "KN-C-000068": "aios-memory-isolation",
+    # Batch 12: Cost Optimization
+    "KN-C-000069": "aios-token-budget",
+    "KN-C-000070": "aios-semantic-cache",
+    "KN-C-000071": "aios-model-routing",
+    "KN-C-000072": "aios-context-pruning",
+    # Batch 13: Deployment
+    "KN-C-000073": "aios-graceful-degradation",
+    "KN-C-000074": "aios-multi-tenancy",
+    "KN-C-000075": "aios-fine-tuning-deployment",
+    "KN-C-000076": "aios-ollama",
+    "KN-C-000077": "aios-chaos-engineering-deployment",
+    # Batch 14: Governance
+    "KN-C-000078": "aios-fcars-framework",
+    "KN-C-000079": "aios-ai-compliance",
+    "KN-C-000080": "aios-ai-fairness",
+    # Batch 15: Patterns
+    "KN-P-000005": "aios-react-pattern",
+    "KN-P-000006": "aios-supervisor-worker",
+    "KN-P-000007": "aios-pipeline-pattern",
+    "KN-P-000008": "aios-semantic-cache-pattern",
+    "KN-P-000009": "aios-model-routing-pattern",
+    # Batch 16: Frameworks
+    "KN-F-000001": "aios-langchain",
+    "KN-F-000002": "aios-langgraph",
+    "KN-F-000003": "aios-autogen",
+    "KN-F-000004": "aios-crewai",
+    "KN-F-000005": "aios-openai-agents-sdk",
+    # Batch 17: Tools
+    "KN-T-000001": "aios-vllm",
+    "KN-T-000002": "aios-vector-database",
+    "KN-T-000003": "aios-browser-automation",
+    # Batch 18: Architectures
+    "KN-A-000001": "aios-agent-harness",
+    "KN-A-000002": "aios-ai-testing-pyramid",
+    # Batch 19: Anti-patterns & Protocol
+    "KN-X-000001": "aios-god-agent",
+    "KN-X-000002": "aios-idor",
+    "KN-R-000001": "aios-a2a-protocol-spec",
+    # Batch 20: Practices
+    "KN-B-000001": "aios-prompt-version-control",
+    "KN-B-000002": "aios-max-iteration-guard",
+    "KN-B-000003": "aios-pii-detection",
+    "KN-B-000004": "aios-jwt-auth",
+    "KN-B-000005": "aios-secret-management",
+    # Batch 21: Case Studies
+    "KN-S-000001": "aios-case-cursor-ai",
+    "KN-S-000002": "aios-case-perplexity",
+    "KN-S-000003": "aios-case-customer-service",
+    "KN-S-000004": "aios-case-code-review",
+    "KN-S-000005": "aios-case-multi-tenant-saas",
+    # Batch 22: Exercises
+    "KN-E-000001": "aios-ex-rag-qa",
+    "KN-E-000002": "aios-ex-react-agent",
+    "KN-E-000003": "aios-ex-supervisor-worker",
+    "KN-E-000004": "aios-ex-security-hardening",
+    "KN-E-000005": "aios-ex-production-harness",
 }
 
 # 章节编号 → node_id 映射
@@ -96,6 +163,20 @@ CHAPTER_NUM_TO_NODE: dict[int, str] = {
     34: "KN-C-000044", 35: "KN-C-000046", 36: "KN-C-000047",
     37: "KN-C-000050", 38: "KN-C-000051", 39: "KN-C-000052",
     40: "KN-C-000053", 41: "KN-C-000054",
+    # Batch 10-22: new nodes ch42-ch95
+    42: "KN-C-000060", 43: "KN-C-000061", 44: "KN-C-000062", 45: "KN-C-000063", 46: "KN-C-000064",
+    47: "KN-C-000065", 48: "KN-C-000066", 49: "KN-C-000067", 50: "KN-C-000068",
+    51: "KN-C-000069", 52: "KN-C-000070", 53: "KN-C-000071", 54: "KN-C-000072",
+    55: "KN-C-000073", 56: "KN-C-000074", 57: "KN-C-000075", 58: "KN-C-000076", 59: "KN-C-000077",
+    60: "KN-C-000078", 61: "KN-C-000079", 62: "KN-C-000080",
+    63: "KN-P-000005", 64: "KN-P-000006", 65: "KN-P-000007", 66: "KN-P-000008", 67: "KN-P-000009",
+    68: "KN-F-000001", 69: "KN-F-000002", 70: "KN-F-000003", 71: "KN-F-000004", 72: "KN-F-000005",
+    73: "KN-T-000001", 74: "KN-T-000002", 75: "KN-T-000003",
+    76: "KN-A-000001", 77: "KN-A-000002",
+    78: "KN-X-000001", 79: "KN-X-000002", 80: "KN-R-000001",
+    81: "KN-B-000001", 82: "KN-B-000002", 83: "KN-B-000003", 84: "KN-B-000004", 85: "KN-B-000005",
+    86: "KN-S-000001", 87: "KN-S-000002", 88: "KN-S-000003", 89: "KN-S-000004", 90: "KN-S-000005",
+    91: "KN-E-000001", 92: "KN-E-000002", 93: "KN-E-000003", 94: "KN-E-000004", 95: "KN-E-000005",
 }
 
 
