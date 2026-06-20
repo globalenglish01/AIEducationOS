@@ -174,7 +174,7 @@ def run_chapter(chapter_num: int, force: bool = False) -> bool:
     t = threading.Thread(target=_stream, daemon=True)
     t.start()
 
-    timeout = 1200  # 20分钟
+    timeout = 1800  # 30分钟（复杂章节生成需要更长时间）
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
