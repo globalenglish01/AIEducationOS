@@ -516,6 +516,11 @@ def _apply_improvements(
     except Exception:
         pass
 
+    import re as _re
+
+    def _count_parts(text: str) -> int:
+        return len(_re.findall(r'(?:^|\n)(?:##\s*)?(?:\*\*)?Part\s*\d+', text))
+
     try:
         if hasattr(writer.llm, "chat_multipart"):
             response = writer.llm.chat_multipart(WRITER_SYSTEM_PROMPT, improve_message)
@@ -524,11 +529,17 @@ def _apply_improvements(
                 {"role": "system", "content": WRITER_SYSTEM_PROMPT},
                 {"role": "user", "content": improve_message},
             ])
-        if response.strip() and len(response.strip()) >= 2000:
+        # 若返回RATE_LIMITED或内容不足15个Part，改用writer.write()批量完整重写
+        if not response or response.strip() in ("RATE_LIMITED", "CHATGPT_ERROR") or \
+                len(response.strip()) < 2000 or _count_parts(response) < 15:
+            parts_found = _count_parts(response) if response else 0
+            print(f"  [Pipeline] 改进版本不完整（{len(response) if response else 0}字符，{parts_found}/15 Parts），改用writer.write()完整批次重写...")
+            response = writer.write(primary_node, research_data, chapter_num, related_nodes)
+        if response and response.strip() and len(response.strip()) >= 2000:
             print(f"  [Pipeline] 改进版本 {len(response)} 字符，采用改进版")
             return _normalize_md(response)
         else:
-            print(f"  [Pipeline] 改进版本过短（{len(response)} 字符），保留原始版本")
+            print(f"  [Pipeline] 改进版本过短（{len(response) if response else 0} 字符），保留原始版本")
             return original_content
     except Exception as e:
         print(f"  [Pipeline] 改进写作失败: {e}，使用原版本")
