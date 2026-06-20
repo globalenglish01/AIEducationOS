@@ -138,6 +138,13 @@ class ChatGPTBrowserLLM(BaseLLM):
     def _ensure_browser(self) -> None:
         import chatgpt_bot as bot
 
+        # 任何 Playwright sync API 调用都不能在有 running asyncio loop 的线程中执行，
+        # 包括 _page.url / _page.is_closed() 等已有 page 的检查，因此无条件清除
+        try:
+            asyncio.set_event_loop(None)
+        except Exception:
+            pass
+
         # 已有浏览器：检查页面是否仍然可用
         if self._page is not None:
             try:
@@ -158,13 +165,6 @@ class ChatGPTBrowserLLM(BaseLLM):
         account_dir = bot.ACCOUNTS.get(self._account)
         if not account_dir:
             raise ValueError(f"ChatGPT 账号 {self._account} 不存在")
-
-        # Playwright sync API 不能在有 running asyncio loop 的线程中调用
-        # 无条件清除当前线程的 event loop，保证 sync_playwright().start() 能正常工作
-        try:
-            asyncio.set_event_loop(None)
-        except Exception:
-            pass
 
         self._playwright = sync_playwright().start()
         result = bot.open_browser(self._playwright, account_dir)
@@ -505,6 +505,13 @@ class DeepSeekBrowserLLM(BaseLLM):
     def _ensure_browser(self) -> None:
         import deepseek_bot as bot
 
+        # 任何 Playwright sync API 调用都不能在有 running asyncio loop 的线程中执行，
+        # 包括 _page.url / _page.is_closed() 等已有 page 的检查，因此无条件清除
+        try:
+            asyncio.set_event_loop(None)
+        except Exception:
+            pass
+
         # 已有浏览器：检查页面是否仍然可用（未关闭、未跳登录页）
         if self._page is not None:
             try:
@@ -526,19 +533,6 @@ class DeepSeekBrowserLLM(BaseLLM):
         account_dir = bot.ACCOUNTS.get(self._account)
         if not account_dir:
             raise ValueError(f"DeepSeek 账号 {self._account} 不存在")
-
-        # Playwright sync API 不能在有 running asyncio loop 的线程中调用
-        # 清除当前线程的 event loop，保证 sync_playwright().start() 能正常工作
-        try:
-            loop = asyncio.get_running_loop()
-            # 有 running loop：需要在子线程里启动 playwright
-            # （通常不走这里，因为 _raw_invoke 已经做了线程分离）
-        except RuntimeError:
-            loop = None
-        try:
-            asyncio.set_event_loop(None)
-        except Exception:
-            pass
 
         self._playwright = sync_playwright().start()
         result = bot.open_browser(self._playwright, account_dir)
