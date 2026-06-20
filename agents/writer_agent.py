@@ -113,6 +113,13 @@ class WriterAgent:
                                 {"role": "system", "content": SYSTEM_PROMPT},
                                 {"role": "user", "content": batch_msg},
                             ])
+                        parts_collected.append(resp.strip())
+                        # 如果第1批已经包含了完整15个Parts，无需继续追问
+                        combined_so_far = "\n\n".join(parts_collected)
+                        found_parts = len(_find_missing_parts(combined_so_far)) == 0
+                        if found_parts:
+                            print(f"  [Writer] 第1批已包含完整15 Parts，跳过后续批次")
+                            break
                     else:
                         # 第2、3批：只发 user 消息，继续同一对话（走 _raw_invoke via worker）
                         if hasattr(self.llm, "_run_in_worker") and hasattr(self.llm, "_raw_invoke"):
@@ -122,7 +129,7 @@ class WriterAgent:
                             )
                         else:
                             resp = self.llm.chat([{"role": "user", "content": batch_msg}])
-                    parts_collected.append(resp.strip())
+                        parts_collected.append(resp.strip())
 
                 response = "\n\n".join(parts_collected)
                 if _validate_chapter(response):
