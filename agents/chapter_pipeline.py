@@ -152,8 +152,8 @@ class ChapterPipeline:
     def _get_researcher(self) -> ResearcherAgent:
         """获取常驻 Researcher 实例，不存在时创建，已存在时复用（浏览器不重启）。"""
         if self._researcher is None:
-            print(f"[Pipeline] 启动 Researcher 浏览器 ({self._researcher_provider}, account={self._reviewer_account})...")
-            self._researcher = ResearcherAgent(provider=self._researcher_provider, account=self._reviewer_account)
+            print(f"[Pipeline] 启动 Researcher 浏览器 ({self._researcher_provider}, account={self._account})...")
+            self._researcher = ResearcherAgent(provider=self._researcher_provider, account=self._account)
         return self._researcher
 
     def _get_reviewer(self) -> ReviewerAgent:
@@ -678,7 +678,7 @@ def run_book(
         writer_provider=writer_provider,
         reviewer_provider=reviewer_provider,
         account=account,
-        reviewer_account="4",  # LucyQQ (acc_5c9d64a2)，DeepSeek Reviewer专用
+        reviewer_account=reviewer_account,
     ) as pipeline:
         for node_id, chapter_num, related_ids in chapters_to_run:
             if node_id in state.completed and not force_rerun:
