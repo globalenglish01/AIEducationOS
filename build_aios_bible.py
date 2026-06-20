@@ -259,14 +259,26 @@ def _strip_comment(md: str) -> tuple[str, dict]:
 
 
 def _extract_title(md: str) -> str:
-    """提取章节标题——只看前20行，避免误匹配代码块内容。"""
-    for line in md.splitlines()[:20]:
-        line = line.strip()
-        if re.match(r"^第\d+章[：:\s]", line):
-            return line
-        m = re.match(r"^#+\s+(.+)$", line)
-        if m:
-            return m.group(1).strip()
+    """提取章节标题——优先匹配 # 第N章 H1，跳过HTML注释块。"""
+    # 优先：在整个文件里找 # 第N章 H1（不限前20行，因为可能前面有注释）
+    m = re.search(r"^#\s+(第\d+章.+)$", md, re.MULTILINE)
+    if m:
+        return m.group(1).strip()
+    # 回退：前20行第一个标题
+    in_comment = False
+    for line in md.splitlines()[:40]:
+        s = line.strip()
+        if s.startswith("<!--"):
+            in_comment = True
+        if in_comment:
+            if "-->" in s:
+                in_comment = False
+            continue
+        if re.match(r"^第\d+章[：:\s]", s):
+            return s
+        m2 = re.match(r"^#\s+(.+)$", s)
+        if m2:
+            return m2.group(1).strip()
     return ""
 
 
