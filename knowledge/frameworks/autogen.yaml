@@ -1,0 +1,150 @@
+id: "KN-F-000003"
+type: Framework
+name: "AutoGen"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - framework
+  - agent
+  - multi-agent
+  - conversation
+
+aliases:
+  - "Microsoft AutoGen"
+  - "autogen"
+  - "AG2"
+
+summary: "微软开发的多 Agent 对话框架，以 Agent 间自动对话为核心机制，适合需要多 Agent 讨论协商、代码执行验证的场景。"
+
+definition: |
+  AutoGen（AG2）是 Microsoft Research 开发的多 Agent 框架，
+  核心理念是：复杂问题通过多个 Agent 之间的**自动对话**来解决。
+
+  主要角色：
+  - AssistantAgent：LLM 驱动的 AI Agent，负责推理和生成
+  - UserProxyAgent：代理用户执行代码，接收 LLM 生成的代码并运行
+  - GroupChat：多个 Agent 参与的群聊，由 GroupChatManager 控制发言顺序
+
+  与 LangGraph（图状态机）的最大区别：
+  AutoGen 的执行流程由 Agent 对话驱动，而非预定义的图结构。
+
+why: |
+  某些复杂任务需要多角色协作和批判性讨论：
+  - 代码生成：需要"写代码"和"执行验证"两个角色
+  - 数学证明：需要"提出方案"和"验证正确性"轮流推进
+  - 产品设计：需要产品经理、工程师、设计师多角色讨论
+
+  AutoGen 的对话机制天然支持这种多角色协作：
+  Agent 之间互相提问、反驳、补充，直到达成共识。
+
+mental_model: |
+  AutoGen = AI 版的 Slack 群聊
+  - 每个 Agent 是群里的一个成员（PM、工程师、测试）
+  - 他们就一个任务展开讨论，互相提问和反驳
+  - UserProxyAgent 是那个真的去执行代码的人
+  - GroupChatManager 是群主，决定每次谁发言
+  - 讨论持续到问题解决或达到最大轮数
+
+core_usage: |
+  # 场景：AI 写代码 + 自动执行验证
+  import autogen
+
+  config_list = [{"model": "gpt-4o", "api_key": "..."}]
+
+  # 1. AssistantAgent：写代码
+  assistant = autogen.AssistantAgent(
+      name="代码助手",
+      system_message="你是Python专家，生成高质量代码并修复问题",
+      llm_config={"config_list": config_list}
+  )
+
+  # 2. UserProxyAgent：执行代码并返回结果
+  user_proxy = autogen.UserProxyAgent(
+      name="执行者",
+      human_input_mode="NEVER",        # 全自动，不需要人工确认
+      max_consecutive_auto_reply=10,
+      code_execution_config={
+          "work_dir": "coding",
+          "use_docker": True            # 在 Docker 中安全执行
+      }
+  )
+
+  # 3. 启动对话：user_proxy 提出任务，assistant 生成代码，user_proxy 执行
+  user_proxy.initiate_chat(
+      assistant,
+      message="写一个爬取 HackerNews 热门文章的脚本，并保存为 CSV"
+  )
+  # 内部流程：
+  # 用户→ assistant 生成代码
+  # user_proxy 执行代码 → 得到结果（或错误）
+  # 结果返回给 assistant → 修复 bug
+  # 循环直到代码成功运行
+
+groupchat_usage: |
+  # 场景：多 Agent 群聊协作（产品评审）
+  pm = autogen.AssistantAgent("产品经理", system_message="分析用户需求，定义功能优先级")
+  engineer = autogen.AssistantAgent("工程师", system_message="评估技术可行性和工作量")
+  qa = autogen.AssistantAgent("QA", system_message="识别风险，提出测试策略")
+  user_proxy = autogen.UserProxyAgent("用户代理", human_input_mode="TERMINATE")
+
+  groupchat = autogen.GroupChat(
+      agents=[pm, engineer, qa, user_proxy],
+      messages=[],
+      max_round=12,
+      speaker_selection_method="auto"  # 由 LLM 决定谁下一个发言
+  )
+  manager = autogen.GroupChatManager(groupchat=groupchat, llm_config=llm_config)
+
+  user_proxy.initiate_chat(
+      manager,
+      message="评估'AI 自动填写报销单'功能的可行性"
+  )
+
+autogen_vs_langgraph:
+  autogen:
+    model: "对话驱动（Agent 互相聊出结果）"
+    strength: "代码生成+执行、多角色讨论、快速原型"
+    weakness: "流程不可预测，难以精确控制执行路径"
+    when: "需要多 Agent 互相讨论协商、代码生成验证循环"
+  langgraph:
+    model: "图状态机驱动（预定义执行图）"
+    strength: "流程精确可控、Checkpoint、生产可靠性"
+    weakness: "需要预先设计图结构，灵活性较低"
+    when: "生产 Agent 系统、需要确定性流程控制"
+
+best_practices:
+  - "代码执行必须用 Docker 隔离：use_docker=True，防止 Agent 生成的代码破坏宿主机"
+  - "设置 max_consecutive_auto_reply：防止 Agent 无限循环对话"
+  - "GroupChat 中 speaker_selection_method='round_robin' 比 'auto' 更可预测"
+  - "生产场景优先用 LangGraph：AutoGen 更适合探索和原型阶段"
+
+anti_patterns:
+  - pattern: "在生产环境用 AutoGen 不设 Docker 隔离直接执行代码"
+    consequence: "Agent 生成的恶意或错误代码可能损坏系统"
+  - pattern: "GroupChat 的 max_round 设置过高（>20）"
+    consequence: "讨论失控，Token 成本爆炸，且往往没有额外价值"
+
+relationships:
+  alternative_to:
+    - id: "KN-F-000002"
+      note: "AutoGen（对话驱动）和 LangGraph（图状态机）是两种不同的 Agent 编排思路"
+  related_to:
+    - id: "KN-P-000006"
+      note: "AutoGen 的 AssistantAgent + UserProxyAgent 是 Supervisor-Worker Pattern 的对话版实现"
+
+interview_points:
+  - "AutoGen 和 LangGraph 的核心区别是什么？各适合什么场景？"
+  - "UserProxyAgent 的作用是什么？为什么代码执行要用 Docker？"
+  - "GroupChat 中 speaker_selection_method 有什么选项？各有什么特点？"
+  - "为什么 AutoGen 更适合原型阶段，LangGraph 更适合生产？（L3+ 考察）"
+
+exam_points:
+  - "AutoGen 核心：Agent 对话驱动，AssistantAgent（推理）+ UserProxyAgent（执行）"
+  - "代码执行必须 Docker 隔离：use_docker=True"
+  - "vs LangGraph：AutoGen 对话驱动灵活但不可控；LangGraph 图结构可控但需要预设计"
+  - "max_consecutive_auto_reply：防止无限对话循环的关键参数"
+
+one_liner: "AutoGen = AI 版 Slack 群聊：多个 Agent 互相对话讨论，UserProxyAgent 负责真正执行代码，适合代码生成验证和多角色协商。"
+difficulty: intermediate

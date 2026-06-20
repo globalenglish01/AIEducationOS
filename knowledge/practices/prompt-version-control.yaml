@@ -1,0 +1,154 @@
+id: "KN-B-000001"
+type: Practice
+name: "Prompt Version Control（提示词版本控制）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - practice
+  - prompt
+  - engineering
+  - version-control
+
+aliases:
+  - "Prompt 版本管理"
+  - "提示词工程规范"
+
+summary: "将 Prompt 作为代码管理：存入 Git 版本控制、与代码分离、支持 A/B 测试和回滚，防止'Prompt 随意改动导致系统行为突变'。"
+
+definition: |
+  Prompt Version Control 是将 Prompt 视为重要软件资产、
+  应用工程化管理实践的方法论：
+  - 版本化：每个 Prompt 有版本号（v1.0, v1.1），变更有记录
+  - 存储：Prompt 存入 Git 或专用 Prompt 管理系统
+  - 与代码分离：Prompt 与业务代码分开存储，可独立部署
+  - 测试：Prompt 变更有回归测试，不轻易改动生产 Prompt
+  - 回滚：Prompt 变差时可快速回滚到上一个版本
+
+why: |
+  未管理 Prompt 的典型事故：
+  - 工程师在代码里修改了一行 Prompt，系统输出质量突变
+  - 没有记录是谁在什么时候改的 Prompt，无法排查
+  - Prompt 改坏了，没有办法快速回滚
+  - 多环境（dev/staging/prod）的 Prompt 版本不一致
+
+  Prompt 是 AI 系统最核心的配置，必须像代码一样管理。
+
+mental_model: |
+  Prompt 版本控制 = 数据库 Schema 管理
+  - 数据库 Schema 改动需要 Migration 文件，有版本记录，可回滚
+  - Prompt 改动同样：需要版本号，有变更日志，可回滚
+  任何一个没有记录的 Schema 改动都可能引发生产事故；
+  同理，任何没有记录的 Prompt 改动都可能引发 AI 系统行为异常。
+
+directory_structure: |
+  prompts/
+  ├── system/
+  │   ├── research_agent_v1.txt       # 版本化 Prompt 文件
+  │   ├── research_agent_v2.txt       # 新版本
+  │   └── research_agent_latest.txt  # 软链接到当前生产版本
+  ├── user_templates/
+  │   └── query_template.txt
+  └── CHANGELOG.md                    # Prompt 变更日志
+
+implementation: |
+  # 方案1：文件 + 环境变量
+  import os
+  from pathlib import Path
+
+  PROMPT_DIR = Path("prompts/system")
+
+  def load_prompt(name: str, version: str = "latest") -> str:
+      """加载指定版本的 Prompt"""
+      # 生产环境通过环境变量控制版本
+      env_version = os.getenv(f"PROMPT_VERSION_{name.upper()}", version)
+      prompt_file = PROMPT_DIR / f"{name}_v{env_version}.txt"
+
+      if not prompt_file.exists():
+          raise FileNotFoundError(f"Prompt not found: {prompt_file}")
+
+      return prompt_file.read_text(encoding="utf-8")
+
+  # 使用：
+  system_prompt = load_prompt("research_agent")  # 加载 latest
+  system_prompt_v1 = load_prompt("research_agent", version="1")  # 加载特定版本
+
+  # 方案2：数据库存储（支持 A/B 测试）
+  class PromptRegistry:
+      def __init__(self, db):
+          self.db = db
+
+      def get_prompt(self, name: str, user_id: str = None) -> dict:
+          """支持 A/B 测试的 Prompt 加载"""
+          active_prompts = self.db.query("""
+              SELECT version, content, traffic_weight
+              FROM prompts
+              WHERE name = ? AND status = 'active'
+          """, (name,))
+
+          # A/B 测试：按流量权重随机分配
+          prompt = weighted_random_choice(active_prompts)
+          return {
+              "content": prompt["content"],
+              "version": prompt["version"]
+          }
+
+      def rollback(self, name: str, target_version: str):
+          """回滚到指定版本"""
+          self.db.execute("""
+              UPDATE prompts SET status = 'inactive' WHERE name = ?
+          """, (name,))
+          self.db.execute("""
+              UPDATE prompts SET status = 'active'
+              WHERE name = ? AND version = ?
+          """, (name, target_version))
+
+changelog_example: |
+  # prompts/CHANGELOG.md
+  ## research_agent
+
+  ### v2.1 (2026-06-20)
+  - 添加"以 Markdown 格式输出"要求
+  - 增加"不要编造参考文献"的限制
+  - 测试结果：LLM-as-Judge 准确性评分 4.7 → 4.9
+
+  ### v2.0 (2026-06-10)
+  - 重写：从指令式改为角色扮演式
+  - 背景：v1.x 版本输出太机械，用户反馈差
+  - 测试结果：满意度 72% → 88%
+
+  ### v1.0 (2026-05-01)
+  - 初始版本
+
+best_practices:
+  - "Prompt 文件和代码放同一个 Git 仓库：确保 Code Review 覆盖 Prompt 变更"
+  - "Prompt 改动必须附带测试结果：改前评分多少，改后多少，决不盲目上线"
+  - "生产 Prompt 只能通过 CI/CD 更新：不允许直接编辑生产环境的 Prompt"
+  - "保留至少 3 个历史版本：快速回滚的安全网"
+
+anti_patterns:
+  - pattern: "把 Prompt 硬编码在业务代码中（而不是独立文件）"
+    consequence: "Prompt 改动需要发代码包，无法独立部署；Code Review 中容易忽视"
+  - pattern: "Prompt 改动不写 CHANGELOG，不附带测试结果"
+    consequence: "出问题时无法判断哪次改动引起，也无法量化改动效果"
+
+relationships:
+  supports:
+    - id: "KN-A-000002"
+      note: "Prompt 版本控制是 AI Testing Pyramid 中单元测试层的前提：有版本才能做回归"
+
+interview_points:
+  - "为什么 Prompt 需要版本控制？Prompt 随意改动会有什么风险？"
+  - "如何设计一个支持 A/B 测试的 Prompt 管理系统？"
+  - "Prompt 与代码应该分开存储还是放在一起？各有什么考量？"
+  - "Prompt 回滚时需要注意什么？（L2+ 考察）"
+
+exam_points:
+  - "Prompt 版本控制：版本号 + Git 存储 + CHANGELOG + 测试结果"
+  - "与代码分离：可独立部署，但放同一 Git 仓库保证 Code Review 覆盖"
+  - "改动必须附带测试结果：改前/改后 LLM-as-Judge 评分对比"
+  - "保留 3 个历史版本：快速回滚安全网"
+
+one_liner: "Prompt 版本控制 = 像 Schema Migration 一样管理 Prompt：版本号+CHANGELOG+测试结果，防止 Prompt 随意改动引发 AI 系统行为突变。"
+difficulty: beginner

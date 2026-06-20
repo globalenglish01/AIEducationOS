@@ -1,0 +1,132 @@
+id: "KN-C-000065"
+type: Concept
+name: "Short-term Memory（短期记忆）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - memory
+  - agent
+  - context-window
+
+aliases:
+  - "Working Memory"
+  - "上下文记忆"
+  - "短期记忆"
+
+summary: "Agent 在单次对话或任务执行中持有的信息，存储在 Context Window 内，会话结束后自动消失。"
+
+definition: |
+  Short-term Memory（短期记忆）是 Agent 在当前执行上下文中维护的临时信息：
+  - 存储位置：LLM 的 Context Window（Prompt 中的消息历史）
+  - 生命周期：从任务开始到任务结束（会话级别）
+  - 容量限制：受 Context Window 大小限制（如 128K tokens）
+  - 内容：对话历史、已执行的工具调用结果、中间推理步骤
+
+  短期记忆是 Agent 能"记住这次对话说了什么"的基础。
+  没有短期记忆，每次 LLM 调用都是孤立的，Agent 无法做多步推理。
+
+why: |
+  人类对话时，我们记住了前面说了什么，才能理解后面的问题。
+  如果每次提问 AI 都要从零开始，就无法进行连贯对话，更无法完成多步任务。
+  短期记忆解决了 LLM "无状态"的本质问题：
+  - LLM API 本身无状态（每次调用独立）
+  - 通过将历史消息拼入 Prompt，模拟出"记忆"效果
+
+mental_model: |
+  短期记忆 = 便利贴（桌面上的临时笔记）
+  - 开会时在便利贴上记关键点（上下文）
+  - 会议结束扔掉（会话结束，记忆清空）
+  - 便利贴空间有限（Context Window 有上限）
+  - 便利贴太多就放不下了（Context Window 溢出）
+
+  对比：长期记忆 = 笔记本（持久化存储，会议结束后翻看）
+
+how_it_works: |
+  短期记忆的实现就是消息历史管理：
+
+  # 最简单的短期记忆实现
+  class AgentMemory:
+      def __init__(self, max_tokens=100000):
+          self.messages = []
+          self.max_tokens = max_tokens
+
+      def add_message(self, role: str, content: str):
+          self.messages.append({"role": role, "content": content})
+          # 如果超出 token 上限，裁剪最早的消息
+          while self._count_tokens() > self.max_tokens:
+              self._prune_oldest()
+
+      def get_context(self) -> list[dict]:
+          return self.messages
+
+      def _prune_oldest(self):
+          # 保留 system prompt，删除最早的 user/assistant 消息对
+          for i, msg in enumerate(self.messages):
+              if msg["role"] == "user":
+                  self.messages.pop(i)      # 删除 user 消息
+                  if i < len(self.messages):
+                      self.messages.pop(i)  # 删除对应的 assistant 消息
+                  break
+
+  # 使用示例
+  memory = AgentMemory()
+  memory.add_message("user", "帮我分析这个数据集")
+  memory.add_message("assistant", "好的，我看到数据集有3列...")
+  memory.add_message("user", "重点关注第2列的异常值")
+  # LLM 能看到完整对话历史，理解"第2列"指的是什么
+
+context_management_strategies:
+  - strategy: "消息滑动窗口"
+    description: "保留最近 N 条消息，丢弃最早的消息"
+    pros: "实现简单"
+    cons: "丢失早期重要信息（如任务目标）"
+
+  - strategy: "摘要压缩（Context Compression）"
+    description: "用 LLM 对历史消息生成摘要，替换原始消息"
+    pros: "保留关键信息，大幅压缩 token 用量"
+    cons: "需要额外 LLM 调用，摘要可能丢失细节"
+
+  - strategy: "重要性过滤"
+    description: "标记关键消息（如任务目标、关键结果），优先保留"
+    pros: "保留最重要的信息"
+    cons: "需要判断消息重要性的逻辑"
+
+limitations:
+  - "容量上限：超过 Context Window 必须裁剪，存在信息丢失风险"
+  - "成本随长度线性增长：每次 LLM 调用都要发送全部历史，token 成本累积"
+  - "会话隔离：两个不同会话之间无法共享短期记忆（需要长期记忆解决）"
+  - "无持久化：进程重启后短期记忆消失，无法从中断处恢复（需要 Checkpoint）"
+
+anti_patterns:
+  - pattern: "不做任何上下文管理，历史无限增长"
+    consequence: "Context Window 溢出报错；token 成本随对话长度爆炸式增长"
+  - pattern: "裁剪时删除 System Prompt"
+    consequence: "LLM 失去角色定义和基本约束，行为变得不可预期"
+  - pattern: "每次调用都重新加载全部历史，不做摘要"
+    consequence: "长对话时 token 成本极高，且早期信息噪音大"
+
+relationships:
+  related_to:
+    - id: "KN-C-000003"
+      note: "短期记忆的容量由 Context Window 决定"
+    - id: "KN-C-000066"
+      note: "短期记忆的持久化版本是 Long-term Memory"
+    - id: "KN-C-000027"
+      note: "Checkpoint 可以将短期记忆的状态持久化，支持断点续跑"
+
+interview_points:
+  - "Agent 的短期记忆是如何实现的？为什么说 LLM 本身是无状态的？"
+  - "Context Window 满了怎么办？有哪些裁剪策略，各有什么 Trade-off？"
+  - "短期记忆和长期记忆的根本区别是什么？"
+  - "如何在不丢失关键信息的前提下压缩上下文？（L2+ 考察）"
+
+exam_points:
+  - "短期记忆 = Context Window 内的消息历史，会话结束自动消失"
+  - "LLM 无状态：每次 API 调用独立，通过拼接历史消息模拟记忆"
+  - "上下文管理三策略：滑动窗口 / 摘要压缩 / 重要性过滤"
+  - "裁剪时必须保留 System Prompt，否则 LLM 失去约束"
+
+one_liner: "短期记忆 = 把对话历史拼进 Prompt，让无状态的 LLM 看起来'记住了'之前说的话。"
+difficulty: beginner

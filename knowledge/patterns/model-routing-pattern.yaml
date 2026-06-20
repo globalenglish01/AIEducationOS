@@ -1,0 +1,142 @@
+id: "KN-P-000009"
+type: Pattern
+name: "Model Routing Pattern（模型路由模式）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - cost
+  - pattern
+  - optimization
+  - model-selection
+
+aliases:
+  - "模型路由"
+  - "LLM Router Pattern"
+  - "智能模型分级"
+
+summary: "在请求入口按任务复杂度自动路由到合适的 LLM（规则/小模型/大模型），在保证质量的前提下最小化 Token 成本。"
+
+definition: |
+  Model Routing Pattern 是 AI 系统的请求调度设计模式：
+  在每次 LLM 调用前，先判断任务的复杂度和类型，
+  将其路由到性价比最优的处理方式：
+  - 规则处理（$0）→ 简单格式验证、模板填充
+  - 轻量小模型 → 分类、提取、翻译等简单任务
+  - 重型大模型 → 复杂推理、代码生成、深度分析
+
+note: "此节点是 KN-C-000071（Model Routing）的 Pattern 视角，聚焦调度策略设计，KN-C-000071 聚焦实现代码。"
+
+why: |
+  LLM 的能力和成本是正相关的：
+  - GPT-4o：$5/M tokens，适合复杂推理
+  - GPT-4o-mini：$0.15/M tokens，适合简单分类
+
+  问题在于：80% 的 AI 请求是简单任务，却用了大模型处理。
+  Model Routing 把这 80% 路由到便宜的处理方式，
+  整体成本降低 40-60%，质量不下降。
+
+mental_model: |
+  Model Routing = 医院智能分诊
+  - 急诊室（大模型）：处理复杂、紧急、高难度案例
+  - 全科门诊（小模型）：处理常见病、简单症状
+  - 自助检查站（规则引擎）：体温、血压等简单测量
+
+  分诊台（Router）在 30 秒内判断病情复杂度，
+  把患者送到效率最高的处理点，
+  而不是让所有人都排队等主任医师。
+
+routing_decision_tree: |
+  新请求到达
+    │
+    ├─→ 是否可用规则处理？（格式验证/模板填充/正则提取）
+    │     YES → 规则引擎（成本：$0）
+    │
+    ├─→ 是否是简单任务？（分类/实体提取/简短翻译/情感分析）
+    │     YES → 小模型（成本：$0.15/M）
+    │
+    └─→ 默认：复杂任务（推理/代码/长文分析/创意写作）
+              → 大模型（成本：$5/M）
+
+router_implementation_strategies:
+  - strategy: "规则路由（零成本）"
+    description: "关键词、正则、任务类型标签判断"
+    accuracy: "高（对已知任务类型）"
+    latency: "< 1ms"
+    code: |
+      RULE_BASED_PATTERNS = [
+          r"^是否是有效的(邮箱|手机号|身份证)",
+          r"^(翻译|translate).{0,10}(成|to) (英文|中文|日文)",
+      ]
+      def is_rule_based(query: str) -> bool:
+          return any(re.match(p, query) for p in RULE_BASED_PATTERNS)
+
+  - strategy: "LLM 分类器路由（推荐）"
+    description: "用轻量小模型做任务复杂度分类"
+    accuracy: "95%+"
+    latency: "100-300ms（一次小模型调用）"
+    code: |
+      def classify_complexity(query: str) -> str:
+          result = small_llm.chat([{
+              "role": "user",
+              "content": f"判断以下任务复杂度，只回答 simple 或 complex:\n{query}"
+          }])
+          return result.strip().lower()
+
+  - strategy: "Embedding 相似度路由"
+    description: "将查询向量化，与已标注的简单/复杂示例比较"
+    accuracy: "85-90%"
+    latency: "50-100ms（embedding 调用）"
+    note: "适合任务类型稳定、可预先标注的场景"
+
+routing_metrics:
+  - metric: "路由准确率"
+    target: "> 95%"
+    measure: "被错误路由到小模型的复杂任务比例"
+  - metric: "成本节省率"
+    target: "40-60%"
+    measure: "路由后 vs 全部用大模型的成本差"
+  - metric: "路由延迟"
+    target: "< 300ms"
+    measure: "路由决策本身增加的延迟"
+
+best_practices:
+  - "路由决策本身用最便宜的方式：规则 > 小模型 embedding > 小模型分类器"
+  - "路由不确定时偏向大模型：宁可多花钱，不能输出错误答案"
+  - "持续监控路由质量：抽样检查小模型处理的结果，发现误路由"
+  - "A/B 测试新路由规则：对比路由前后质量和成本数据"
+
+anti_patterns:
+  - pattern: "用大模型做路由分类（本末倒置）"
+    consequence: "路由本身的成本超过节省的成本"
+  - pattern: "路由规则只写一次，从不更新"
+    consequence: "业务变化后路由失效，误路由率升高"
+  - pattern: "复杂任务为省钱强制路由到小模型"
+    consequence: "质量严重下降，用户体验崩溃，得不偿失"
+
+relationships:
+  concept_version:
+    - id: "KN-C-000071"
+      note: "KN-C-000071 是此 Pattern 的实现细节版本"
+  used_with:
+    - id: "KN-P-000008"
+      note: "语义缓存先于路由：命中缓存直接返回，缓存 miss 才路由"
+  related_to:
+    - id: "KN-C-000069"
+      note: "Model Routing 是 Token Budget 超限时的降级手段之一"
+
+interview_points:
+  - "Model Routing 解决了什么问题？不做路由的成本代价是多少？"
+  - "路由决策本身应该用什么方式实现？为什么不能用大模型做路由？"
+  - "如何监控路由质量？什么指标说明路由策略需要调整？"
+  - "路由不确定时应该偏向哪个模型？为什么？（L2+ 考察工程判断）"
+
+exam_points:
+  - "三级路由：规则（$0）→ 小模型（分类/提取）→ 大模型（推理/代码）"
+  - "路由器本身用最便宜方式：规则 > 小模型，不用大模型做路由"
+  - "不确定时偏向大模型：质量优先，错误路由比超支更危险"
+  - "成本节省 40-60%，配合语义缓存效果更佳"
+
+one_liner: "Model Routing = 智能分诊：按任务复杂度自动选模型，简单问题不占大模型资源，成本降 40-60% 且质量不打折。"
+difficulty: intermediate

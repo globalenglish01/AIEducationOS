@@ -1,0 +1,138 @@
+id: "KN-C-000060"
+type: Protocol
+name: "MCP（Model Context Protocol）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - mcp
+  - tool-use
+  - protocol
+  - integration
+
+aliases:
+  - "Model Context Protocol"
+  - "MCP 协议"
+
+summary: "Anthropic 提出的开放协议，让 LLM 应用以标准化方式连接外部工具、数据源和服务，实现跨框架的工具互通。"
+
+definition: |
+  MCP（Model Context Protocol）是一套开放的标准协议，定义了 LLM 应用（Client）
+  与外部能力提供者（MCP Server）之间的通信方式。
+  MCP Server 可以暴露三类能力：
+  1. Tool（工具）：可被 LLM 调用的函数，如搜索、数据库查询、代码执行
+  2. Resource（资源）：可被读取的数据，如文件、数据库记录、API 响应
+  3. Prompt（提示模板）：预定义的 Prompt 片段，供 Client 复用
+  MCP 的核心价值是标准化：写一次 Server，任何兼容 MCP 的 Client 都能使用。
+
+why: |
+  在 MCP 出现之前，每个 AI 框架（LangChain、AutoGen、自研系统）都有自己的工具集成方式，
+  同一个工具（如搜索引擎）需要为每个框架重复实现一遍适配器。
+  MCP 相当于给 AI 工具集成定义了 USB 接口标准：
+  - 工具提供方只需写一个 MCP Server
+  - AI 应用只需接入 MCP Client
+  - 两者即可互通，无需定制适配
+
+mental_model: |
+  MCP = USB 接口标准
+  - USB 出现前：每个设备厂商有不同接口，打印机、鼠标、键盘各用各的线
+  - USB 出现后：统一接口，任何 USB 设备可接任何 USB 主机
+  MCP 也是如此：
+  - MCP Server = USB 设备（提供能力）
+  - MCP Client = USB 主机（消费能力）
+  - MCP 协议 = USB 规范（定义通信方式）
+
+how_it_works: |
+  MCP 通信流程：
+  1. Server 启动，注册可用的 Tool/Resource/Prompt 列表
+  2. Client 连接 Server，获取能力清单
+  3. LLM 决定调用哪个 Tool，Client 向 Server 发送调用请求
+  4. Server 执行工具逻辑，返回结果
+  5. Client 将结果注入 LLM 上下文，LLM 继续生成
+
+  传输方式：
+  - stdio（标准输入输出）：本地进程通信
+  - HTTP + SSE（Server-Sent Events）：网络通信
+
+  Python Server 示例（最简单的 MCP Server）：
+  from mcp.server.fastmcp import FastMCP
+  mcp = FastMCP("my-tools")
+
+  @mcp.tool()
+  def search_web(query: str) -> str:
+      """搜索网络并返回结果"""
+      return web_search_api(query)
+
+  if __name__ == "__main__":
+      mcp.run()
+
+mcp_three_primitives:
+  - primitive: "Tool（工具）"
+    description: "LLM 可以调用的函数，执行操作并返回结果"
+    example: "search_web(query) / execute_sql(query) / send_email(to, body)"
+    when_to_use: "需要执行操作、获取实时数据、调用外部 API"
+
+  - primitive: "Resource（资源）"
+    description: "可读取的数据对象，不执行操作，只提供数据"
+    example: "file://readme.md / db://users/123 / api://weather/beijing"
+    when_to_use: "需要访问文档、文件内容、数据库记录"
+
+  - primitive: "Prompt（提示模板）"
+    description: "预定义的 Prompt 片段，可被 Client 复用"
+    example: "代码审查模板、SQL 生成模板"
+    when_to_use: "跨应用复用标准化 Prompt 结构"
+
+best_practices:
+  - "每个 Tool 只做一件事：单一职责，Tool 描述清晰，LLM 才能正确选择调用"
+  - "Tool 描述即接口文档：description 字段会直接进入 LLM 上下文，写清楚参数含义"
+  - "MCP Server 加超时和资源限制：防止工具调用挂起或耗尽服务器资源"
+  - "敏感操作加权限校验：MCP Server 不能默认信任所有 Client 调用"
+
+anti_patterns:
+  - pattern: "把所有工具堆在一个 MCP Server 里"
+    consequence: "Server 职责不清，难以维护；工具清单过长影响 LLM 选择准确性"
+  - pattern: "Tool description 写得太简单（如：'搜索'）"
+    consequence: "LLM 无法判断什么时候调用此工具，导致调用时机错误"
+  - pattern: "不做权限控制，任何人可调用任何工具"
+    consequence: "高危工具（删除、写入）被滥用，造成安全事故"
+
+common_misconceptions:
+  - misconception: "MCP 只是另一种 Function Calling"
+    correction: "Function Calling 是单次 LLM 调用中的工具调用机制，MCP 是跨框架、跨应用的工具共享协议，解决的是生态互通问题，层级更高。"
+  - misconception: "MCP 取代了 LangChain Tool"
+    correction: "MCP 是协议层，LangChain Tool 是框架层。LangChain 可以通过 MCP Client 来使用 MCP Server 暴露的工具，两者是互补关系。"
+
+relationships:
+  related_concepts:
+    - id: "KN-C-000022"
+      note: "MCP 是 Tool Use 的标准化协议实现"
+    - id: "KN-C-000061"
+      note: "MCP Server 暴露 Tool/Resource/Prompt 三类能力"
+    - id: "KN-C-000062"
+      note: "MCP 工具需要 Tool Schema Design 来定义接口"
+  security:
+    - id: "KN-C-000043"
+      note: "Tool Injection 是 MCP 环境下的主要攻击面"
+
+interview_points:
+  - "MCP 协议解决了什么问题？为什么需要它？（考察对工具生态碎片化问题的理解）"
+  - "MCP 的三类 Primitive（Tool/Resource/Prompt）分别是什么，各自适用什么场景？"
+  - "MCP 和 Function Calling 有什么区别？（考察层次理解）"
+  - "如何设计一个安全的 MCP Server？需要考虑哪些安全点？"
+  - "MCP Server 的 Tool description 为什么对 LLM 行为影响很大？（L2+ 考察）"
+
+exam_points:
+  - "MCP = 开放协议，标准化 LLM 应用与外部工具的通信方式，解决生态碎片化"
+  - "三类 Primitive：Tool（执行操作）/ Resource（读取数据）/ Prompt（模板复用）"
+  - "传输方式：stdio（本地）/ HTTP+SSE（网络）"
+  - "MCP 类比 USB：Server = 设备，Client = 主机，协议 = USB 规范"
+  - "安全要点：权限控制 + 输入验证 + 超时限制 + 沙箱隔离"
+
+one_liner: "MCP = AI 工具世界的 USB 接口，写一次 Server，所有兼容框架都能用。"
+difficulty: intermediate
+
+references:
+  - "MCP 官方规范: https://modelcontextprotocol.io/"
+  - "Anthropic MCP 博客: https://www.anthropic.com/news/model-context-protocol"
+  - "Python MCP SDK: https://github.com/modelcontextprotocol/python-sdk"

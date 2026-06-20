@@ -1,0 +1,150 @@
+id: "KN-C-000074"
+type: Architecture
+name: "Multi-tenancy（多租户架构）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - deployment
+  - architecture
+  - isolation
+  - saas
+
+aliases:
+  - "多租户"
+  - "多租户隔离"
+  - "Tenant Isolation"
+
+summary: "在同一个 AI 系统中服务多个独立客户（租户），通过数据隔离、权限隔离、计费隔离，确保租户间完全独立，互不影响。"
+
+definition: |
+  Multi-tenancy（多租户）是 SaaS 平台的核心架构模式：
+  单套代码和基础设施服务多个独立客户（企业或个人用户），
+  每个租户的数据、配置、权限、计费相互隔离。
+
+  在 AI 系统中，多租户的复杂性更高：
+  - 数据隔离：各租户的知识库、对话历史、Agent 配置不能混用
+  - 模型配置隔离：租户A可以配置使用 GPT-4o，租户B使用 Claude
+  - 计费隔离：每个租户的 Token 消耗独立计算
+  - 资源隔离：高用量租户不能影响其他租户的响应速度
+
+why: |
+  企业 AI 平台必须支持多租户：
+  - 客户 A 的数据（合同、财务信息）不能被客户 B 看到
+  - 客户 B 的大量 API 调用不能导致客户 A 的请求变慢
+  - 每个客户要看到自己的使用量和账单
+  不实现多租户隔离的 SaaS AI 平台有严重的合规和安全风险。
+
+mental_model: |
+  多租户 = 写字楼的分层管理
+  - 大楼（AI 平台）：一套基础设施，多家公司共用
+  - 每层/每个办公室（租户）：有独立门禁（权限）、独立租金（计费）
+  - A 公司员工（用户）只能进 A 公司的办公室，看不到 B 公司的文件
+  - 大楼保安（认证系统）验证每个人的门卡（JWT），确保访问合法
+
+  关键：大楼共享（节省成本），但每个租户完全独立（安全合规）
+
+isolation_dimensions:
+  - dimension: "数据隔离（Data Isolation）"
+    description: "每个租户的数据（知识库、对话、配置）严格分区"
+    implementation: |
+      # 所有数据表都有 tenant_id 字段
+      CREATE TABLE knowledge_nodes (
+          id UUID PRIMARY KEY,
+          tenant_id UUID NOT NULL,  -- 租户标识
+          content TEXT,
+          embedding VECTOR(1536),
+          created_at TIMESTAMP
+      );
+      CREATE INDEX idx_tenant ON knowledge_nodes(tenant_id);
+
+      # 所有查询强制附带 tenant_id
+      SELECT * FROM knowledge_nodes
+      WHERE tenant_id = $1 AND ...  -- tenant_id 来自 JWT，不可伪造
+    risk_without: "IDOR 漏洞：租户A可查询租户B的知识库"
+
+  - dimension: "权限隔离（Permission Isolation）"
+    description: "租户内部的角色权限（管理员/普通用户）独立管理"
+    implementation: |
+      # JWT payload 包含 tenant_id 和 role
+      {
+        "sub": "user_123",
+        "tenant_id": "tenant_abc",
+        "role": "admin",
+        "exp": 1735689600
+      }
+      # 每个 API 请求验证：tenant_id + role 组合
+    risk_without: "租户内部越权；租户间权限混用"
+
+  - dimension: "计费隔离（Billing Isolation）"
+    description: "每个租户的 Token 消耗、API 调用次数独立统计"
+    implementation: |
+      # 每次 LLM 调用后记录用量
+      async def record_usage(tenant_id: str, tokens_used: int, model: str):
+          await db.execute("""
+              INSERT INTO usage_records (tenant_id, tokens, model, timestamp)
+              VALUES ($1, $2, $3, NOW())
+          """, tenant_id, tokens_used, model)
+
+      # 月度账单查询
+      async def get_monthly_bill(tenant_id: str, month: str) -> dict:
+          return await db.fetchone("""
+              SELECT SUM(tokens) as total_tokens,
+                     SUM(tokens * price_per_token) as total_cost
+              FROM usage_records
+              WHERE tenant_id = $1 AND DATE_TRUNC('month', timestamp) = $2
+          """, tenant_id, month)
+    risk_without: "成本无法分摊；免费用户消耗付费用户的配额"
+
+  - dimension: "资源隔离（Resource Isolation）"
+    description: "高用量租户不能占用其他租户的计算资源"
+    implementation: |
+      # 每个租户的 API 调用设置速率限制
+      from slowapi import Limiter
+      limiter = Limiter(key_func=get_tenant_id)
+
+      @app.post("/api/chat")
+      @limiter.limit("100/minute")  # 每租户每分钟最多 100 次
+      async def chat(request: Request):
+          ...
+    risk_without: "大租户雪崩效应：一个租户高并发导致所有租户响应变慢"
+
+tenant_isolation_checklist:
+  - "✅ 所有数据库表有 tenant_id 字段，所有查询强制 WHERE tenant_id = ?"
+  - "✅ API 的 tenant_id 来自 JWT Token，不接受客户端传入"
+  - "✅ 向量数据库的检索附带 tenant_id 过滤（防止跨租户向量搜索）"
+  - "✅ 文件存储按 tenant_id 分目录（s3://bucket/tenant_id/...）"
+  - "✅ 每个租户的 LLM 调用 Token 用量独立计量"
+  - "✅ 每个租户有独立的速率限制（防资源抢占）"
+  - "✅ 审计日志记录每次跨租户的异常访问尝试"
+
+anti_patterns:
+  - pattern: "使用 LLM 决定是否有权限访问某个资源"
+    consequence: "LLM 可被 Prompt Injection 欺骗绕过权限，权限控制必须在确定性代码中实现"
+  - pattern: "所有租户共享同一个向量数据库 namespace"
+    consequence: "一个租户的向量检索可能返回其他租户的数据（语义相似但属于不同租户）"
+  - pattern: "tenant_id 从请求参数读取而非 JWT"
+    consequence: "攻击者可以伪造 tenant_id，访问其他租户数据（IDOR）"
+
+relationships:
+  related_to:
+    - id: "KN-C-000068"
+      note: "Memory Isolation 是多租户在 AI 记忆层的具体实现"
+    - id: "KN-C-000041"
+      note: "IDOR 漏洞是多租户隔离失败的典型安全风险"
+
+interview_points:
+  - "多租户架构需要在哪些维度做隔离？（数据/权限/计费/资源各说一点）"
+  - "为什么 tenant_id 不能从请求参数读取，必须从 JWT Token 提取？"
+  - "向量数据库如何实现多租户隔离？（L2+ 考察实现细节）"
+  - "一个高用量租户如何避免影响其他租户？（L3+ 考察资源隔离）"
+
+exam_points:
+  - "四维隔离：数据（tenant_id 过滤）/ 权限（JWT role）/ 计费（独立统计）/ 资源（速率限制）"
+  - "tenant_id 必须来自 JWT，不接受客户端传入"
+  - "向量检索也要附带 tenant_id 过滤，否则语义相似查询可能返回其他租户数据"
+  - "权限判断必须在确定性代码中，不能依赖 LLM"
+
+one_liner: "多租户 = 写字楼分层管理：同一套 AI 基础设施，多个客户完全隔离使用，数据不混、账单独立、资源公平。"
+difficulty: advanced

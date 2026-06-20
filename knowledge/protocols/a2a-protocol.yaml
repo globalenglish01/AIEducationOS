@@ -1,0 +1,210 @@
+id: "KN-R-000001"
+type: Protocol
+name: "A2A Protocol（Agent-to-Agent 通信协议）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - protocol
+  - agent
+  - multi-agent
+  - communication
+
+aliases:
+  - "A2A"
+  - "Agent-to-Agent Protocol"
+  - "Google A2A"
+
+summary: "Google 主导的跨 Agent 通信开放协议，定义 Agent 之间任务委托、能力发现、状态同步的标准格式，使不同框架（LangGraph/AutoGen/CrewAI）的 Agent 可以互操作。"
+
+definition: |
+  A2A Protocol（Agent-to-Agent Protocol）是 Google 于 2025 年提出的
+  多 Agent 互操作协议，解决不同 Agent 框架之间的通信壁垒：
+
+  核心概念：
+  - Agent Card：Agent 的"身份证"，声明自己的能力、输入输出格式、认证方式
+  - Task：A2A 的基本工作单元，包含 ID、状态、输入/输出
+  - Artifact：Task 的产物（文件、数据、结构化结果）
+  - Push Notification：长任务的异步进度通知
+
+  传输层：基于 HTTP/JSON，支持 SSE（Server-Sent Events）流式响应
+
+why: |
+  当前多 Agent 生态的碎片化问题：
+  - LangGraph Agent 无法直接调用 AutoGen Agent
+  - 不同公司开发的 Agent 服务之间需要自定义集成
+  - 每个框架都有自己的任务状态定义（started/running/done/failed）
+
+  A2A 提供统一的 Agent 通信协议：
+  - 就像 HTTP 让不同服务器可以互通，A2A 让不同 Agent 可以互通
+  - Agent 只需实现 A2A Protocol，就能与任何支持 A2A 的 Agent 协作
+
+mental_model: |
+  A2A Protocol = Agent 界的 HTTP 协议
+  - HTTP（Web）：无论服务器用 Java/Python/Go，客户端用浏览器/手机/脚本，
+    都通过 HTTP 协议通信，完全互操作
+  - A2A（Agent）：无论 Agent 用 LangGraph/AutoGen/CrewAI 实现，
+    都通过 A2A 协议通信，完全互操作
+
+  没有 A2A 的世界：每对 Agent 框架之间需要自定义适配层（N×N 问题）
+  有了 A2A 的世界：每个框架只需实现一个 A2A 接口（N×1 问题）
+
+agent_card: |
+  # Agent Card（/.well-known/agent.json 或声明性配置）
+  # Agent 的能力声明文件
+  {
+    "name": "Research Agent",
+    "description": "专业研究 Agent，可以搜索和分析信息",
+    "version": "1.0",
+    "capabilities": {
+      "streaming": true,           # 支持 SSE 流式响应
+      "pushNotifications": true,   # 支持 Webhook 推送
+      "stateTransitionHistory": true
+    },
+    "skills": [
+      {
+        "id": "web_research",
+        "name": "网络研究",
+        "description": "从互联网搜索和分析特定主题信息",
+        "inputModes": ["text"],
+        "outputModes": ["text", "file"]
+      }
+    ],
+    "authentication": {
+      "schemes": ["bearer"]        # 支持 JWT 认证
+    },
+    "url": "https://research-agent.company.com"
+  }
+
+task_lifecycle: |
+  # A2A 任务状态机
+  # submitted → working → [input-required] → working → completed/failed/canceled
+
+  # 客户端发起任务
+  POST /tasks
+  {
+    "id": "task-uuid-001",
+    "sessionId": "session-xyz",
+    "message": {
+      "role": "user",
+      "parts": [{"type": "text", "text": "研究 2025 年 AI 芯片市场"}]
+    }
+  }
+
+  # 长任务：SSE 流式进度
+  GET /tasks/task-uuid-001/subscribe
+  data: {"type":"status","status":{"state":"working","message":"正在搜索..."},"final":false}
+  data: {"type":"artifact","artifact":{"name":"draft.md","parts":[...]},"final":false}
+  data: {"type":"status","status":{"state":"completed"},"final":true}
+
+python_implementation: |
+  # 实现 A2A Server（FastAPI）
+  from fastapi import FastAPI
+  from fastapi.responses import StreamingResponse
+  import uuid, json
+
+  app = FastAPI()
+
+  @app.get("/.well-known/agent.json")
+  async def agent_card():
+      """Agent 能力发现端点"""
+      return {
+          "name": "My Research Agent",
+          "skills": [{"id": "research", "name": "Web Research"}],
+          "url": "https://my-agent.example.com",
+          "capabilities": {"streaming": True}
+      }
+
+  @app.post("/tasks")
+  async def create_task(request: dict):
+      task_id = str(uuid.uuid4())
+      # 异步执行任务，立即返回 task_id
+      asyncio.create_task(execute_task(task_id, request["message"]))
+      return {"id": task_id, "status": {"state": "submitted"}}
+
+  @app.get("/tasks/{task_id}/subscribe")
+  async def subscribe_task(task_id: str):
+      """SSE 流式进度订阅"""
+      async def generate():
+          async for event in task_progress_stream(task_id):
+              yield f"data: {json.dumps(event)}\n\n"
+      return StreamingResponse(generate(), media_type="text/event-stream")
+
+  # 调用 A2A Agent（客户端）
+  import httpx
+
+  class A2AClient:
+      def __init__(self, agent_url: str, api_key: str):
+          self.agent_url = agent_url
+          self.headers = {"Authorization": f"Bearer {api_key}"}
+
+      async def run_task(self, message: str) -> str:
+          """提交任务并等待完成"""
+          async with httpx.AsyncClient() as client:
+              # 创建任务
+              resp = await client.post(
+                  f"{self.agent_url}/tasks",
+                  json={"message": {"role": "user",
+                                    "parts": [{"type": "text", "text": message}]}},
+                  headers=self.headers
+              )
+              task_id = resp.json()["id"]
+
+              # 订阅进度（SSE）
+              async with client.stream("GET",
+                  f"{self.agent_url}/tasks/{task_id}/subscribe",
+                  headers=self.headers) as stream:
+                  async for line in stream.aiter_lines():
+                      if line.startswith("data:"):
+                          event = json.loads(line[5:])
+                          if event.get("final"):
+                              return event.get("artifact", {}).get("content", "")
+
+a2a_vs_mcp:
+  a2a:
+    what: "Agent 到 Agent 的任务委托协议"
+    direction: "横向（Agent ↔ Agent，平等协作）"
+    use_case: "Supervisor 把子任务委托给 Worker Agent"
+    unit: "Task（有状态，可异步，有生命周期）"
+  mcp:
+    what: "Agent 到工具/资源的调用协议"
+    direction: "纵向（Agent → Tool/Resource，主从关系）"
+    use_case: "Agent 调用数据库、文件系统等工具"
+    unit: "Tool Call（无状态，同步执行，立即返回）"
+  complement: "A2A 和 MCP 互补：A2A 用于 Agent 间协作，MCP 用于 Agent 调用工具"
+
+best_practices:
+  - "Agent Card 保持最新：技能变更时同步更新 /.well-known/agent.json"
+  - "长任务用异步 + SSE：不要让客户端等待超过 30 秒的同步响应"
+  - "Task ID 全局唯一：用 UUID，避免 ID 冲突导致状态混乱"
+  - "认证使用 Bearer Token（JWT）：A2A 之间的调用也需要身份验证"
+
+anti_patterns:
+  - pattern: "A2A 任务在单一 HTTP 请求中同步完成（阻塞等待）"
+    consequence: "长任务导致 HTTP 超时，客户端无法获知进度"
+  - pattern: "不实现 Agent Card 端点"
+    consequence: "其他 Agent 无法发现你的 Agent 能力，无法自动集成"
+
+relationships:
+  complements:
+    - id: "KN-C-000060"
+      note: "A2A（Agent 间）和 MCP（Agent 到工具）是互补协议，共同构成 Agent 生态的两层通信标准"
+  used_in:
+    - id: "KN-P-000006"
+      note: "A2A Protocol 可作为 Supervisor-Worker Pattern 中跨框架 Agent 通信的标准"
+
+interview_points:
+  - "A2A Protocol 解决了什么问题？为什么需要这个协议？"
+  - "A2A 和 MCP 的区别是什么？各自用于什么场景？"
+  - "Agent Card 是什么？它在 A2A 生态中起什么作用？"
+  - "如何处理 A2A 长任务的进度通知？（L3+ 考察异步设计）"
+
+exam_points:
+  - "A2A = Agent 间通信协议，解决不同框架 Agent 互操作问题"
+  - "A2A vs MCP：A2A 横向（Agent ↔ Agent），MCP 纵向（Agent → Tool）"
+  - "Agent Card：/.well-known/agent.json，声明能力，供其他 Agent 发现"
+  - "长任务：异步 + SSE 流式进度，不阻塞等待"
+
+one_liner: "A2A = Agent 界的 HTTP：统一跨框架 Agent 通信标准，Agent Card 声明能力，Task 定义工作单元，SSE 推送长任务进度——MCP 的横向伴侣。"
+difficulty: advanced

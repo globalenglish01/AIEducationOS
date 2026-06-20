@@ -1,0 +1,155 @@
+id: "KN-C-000061"
+type: Practice
+name: "Tool Schema Design（工具接口设计）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - mcp
+  - tool-use
+  - schema
+  - function-calling
+
+aliases:
+  - "Function Calling Schema"
+  - "工具定义"
+  - "Tool Definition"
+
+summary: "定义 AI 工具的名称、参数类型、描述的接口规范——description 字段直接影响 LLM 调用准确性，是工具设计的核心。"
+
+definition: |
+  Tool Schema 是 LLM 可调用工具的接口描述文档（JSON Schema 格式），包含：
+  - name：工具名称（函数名风格，snake_case）
+  - description：工具的功能描述（LLM 据此决定是否调用）
+  - parameters：参数列表，每个参数含类型、描述、是否必填
+  LLM 在 Reasoning 时会读取 Schema，判断"这个工具是否适合解决当前问题"。
+  因此 Schema 的质量直接决定 LLM 工具调用的准确性。
+
+why: |
+  LLM 不像人类能看懂函数源码——它只能通过 Schema 的自然语言描述来理解工具。
+  一个描述模糊的 Schema，会导致：
+  - LLM 在不该调用时调用（误触发）
+  - LLM 在该调用时不调用（漏触发）
+  - LLM 传入错误的参数格式
+  好的 Schema = 好的工具文档 = LLM 用对工具的前提。
+
+mental_model: |
+  Tool Schema = API 文档，但读者是 LLM 而不是人类工程师
+  人类工程师读 API 文档：看参数类型、示例、注意事项
+  LLM 读 Tool Schema：看 description 判断"我需要做这件事时，该用这个工具吗？"
+  所以 description 必须回答："什么情况下应该调用我？"
+
+how_it_works: |
+  OpenAI Function Calling / MCP Tool Schema 格式示例：
+
+  # ❌ 差的 Schema（description 太简单）
+  {
+    "name": "search",
+    "description": "搜索",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "q": {"type": "string"}
+      }
+    }
+  }
+
+  # ✅ 好的 Schema（description 清晰，参数有说明）
+  {
+    "name": "search_web",
+    "description": "当需要获取最新信息、实时数据、或训练数据截止日期之后的内容时，使用此工具搜索网络。不适用于已知的历史事实查询。",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "搜索关键词，使用英文可获得更好结果"
+        },
+        "max_results": {
+          "type": "integer",
+          "description": "返回结果数量，默认5，最大20",
+          "default": 5
+        }
+      },
+      "required": ["query"]
+    }
+  }
+
+  Python MCP 装饰器方式（推荐）：
+  @mcp.tool()
+  def search_web(query: str, max_results: int = 5) -> str:
+      """
+      搜索网络获取最新信息。
+      当需要：实时新闻、最新技术文档、当前价格、近期事件时使用。
+      不适用于：历史事实、常识性问题（直接回答更快）。
+
+      Args:
+          query: 搜索关键词，建议用英文提高准确性
+          max_results: 返回结果数，默认5
+      """
+      ...
+
+schema_design_principles:
+  - principle: "description 必须说明'什么时候用'和'什么时候不用'"
+    example: |
+      好："当用户需要实时天气信息时使用此工具。已知历史气候数据无需调用。"
+      差："获取天气"
+
+  - principle: "参数名用完整英文单词，不用缩写"
+    example: |
+      好：query, max_results, file_path
+      差：q, n, fp
+
+  - principle: "每个参数 description 说明格式期望和约束"
+    example: |
+      好：{"description": "ISO 8601 格式的日期，如 '2026-06-20'"}
+      差：{"description": "日期"}
+
+  - principle: "必填参数和选填参数要明确区分"
+    example: |
+      required: ["query"]   # 只有 query 是必填
+      # max_results 有默认值，是选填
+
+best_practices:
+  - "工具名用动词开头：search_web / execute_sql / send_email，而不是 web / sql / email"
+  - "一个工具只做一件事：search_and_summarize 应拆成 search + summarize 两个工具"
+  - "description 长度 50-200 字：太短信息不足，太长 LLM 难以提炼关键信息"
+  - "在 description 中给出调用示例：'适合查询如：最新 Python 版本是什么？'"
+
+anti_patterns:
+  - pattern: "description 写成功能介绍而非使用指南"
+    consequence: "LLM 知道工具能做什么，但不知道什么时候该用，导致调用时机错误"
+  - pattern: "参数类型写 string 但实际期望 JSON"
+    consequence: "LLM 传入格式不匹配，工具解析失败"
+  - pattern: "所有参数都设为 required"
+    consequence: "LLM 在可选参数缺失时拒绝调用，降低工具可用性"
+
+common_misconceptions:
+  - misconception: "Schema 只是格式声明，LLM 会自己理解工具的用途"
+    correction: "LLM 只能从 description 字段判断工具用途，没有 description 或 description 模糊，LLM 无法正确决策。Schema 的 description 质量 = 工具调用准确率。"
+
+relationships:
+  used_in:
+    - id: "KN-C-000060"
+      note: "MCP Tool 的定义遵循 Tool Schema 规范"
+    - id: "KN-C-000022"
+      note: "Tool Use 的接口定义标准"
+  security:
+    - id: "KN-C-000063"
+      note: "Tool Path Sandbox 是 Schema 安全约束的实现"
+
+interview_points:
+  - "为什么 Tool description 的质量会影响 LLM 调用准确率？"
+  - "一个好的 Tool Schema 的 description 应该包含哪些信息？"
+  - "MCP Tool 和 OpenAI Function Calling 的 Schema 格式有什么异同？"
+  - "如何测试一个 Tool Schema 设计是否足够清晰？（L2+ 考察）"
+
+exam_points:
+  - "Tool Schema 必填三要素：name（snake_case动词开头）/ description（说明使用场景）/ parameters（类型+描述+required）"
+  - "description 核心原则：说明'什么时候用'和'什么时候不用'"
+  - "参数 description 要说明格式期望（如 ISO 8601 日期格式）"
+  - "一工具一职责：search_and_summarize 应拆为两个工具"
+
+one_liner: "Tool Schema 的 description 是写给 LLM 看的 API 文档，决定 LLM 是否在正确时机调用正确工具。"
+difficulty: intermediate

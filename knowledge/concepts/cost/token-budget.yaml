@@ -1,0 +1,152 @@
+id: "KN-C-000069"
+type: Practice
+name: "Token Budget（Token 预算管理）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - cost
+  - token
+  - optimization
+  - production
+
+aliases:
+  - "Token 预算"
+  - "Token 成本控制"
+  - "Token 用量管理"
+
+summary: "为 AI 系统的每次调用或每个任务设置 Token 上限，超限时触发降级策略，防止无控制的 Token 消耗导致成本失控。"
+
+definition: |
+  Token Budget 是 AI 系统对 LLM 调用 Token 用量的主动管理机制：
+  - 调用级预算：单次 LLM 调用的最大输入/输出 Token 数
+  - 任务级预算：完成一个任务（含多次 LLM 调用）的 Token 总上限
+  - 用户级预算：每个用户每天/每月可消耗的 Token 配额
+  超出预算时触发降级策略而非报错，保证系统可用性。
+
+why: |
+  LLM API 按 Token 计费，没有预算上限的 AI 系统面临：
+  - 单任务失控：Agent 反复调用 LLM，一个任务消耗数百万 Token
+  - 用户滥用：少数用户消耗大量 Token，影响其他用户
+  - 成本预测失败：无法准确估算月度 LLM 成本，财务风险
+  Token Budget 将成本控制从"事后发现"变为"事前管理"。
+
+mental_model: |
+  Token Budget = 出差报销额度
+  - 每次出差（任务）有报销上限（Token 预算）
+  - 超额需要申请特批（降级或拒绝）
+  - 每个员工（用户）有月度报销总额（用户级预算）
+  - 财务部（监控系统）实时追踪使用情况，接近上限发出提醒
+
+how_it_works: |
+  from dataclasses import dataclass
+  from typing import Optional
+
+  @dataclass
+  class TokenBudget:
+      max_input_tokens: int = 50000    # 单次调用最大输入 token
+      max_output_tokens: int = 4000    # 单次调用最大输出 token
+      max_task_tokens: int = 200000    # 整个任务最大 token 总量
+      current_task_tokens: int = 0     # 当前任务已消耗 token
+
+      def check_and_update(self, input_tokens: int, output_tokens: int) -> bool:
+          """返回 True 继续，False 触发降级"""
+          used = input_tokens + output_tokens
+          self.current_task_tokens += used
+          if self.current_task_tokens > self.max_task_tokens:
+              return False  # 触发降级
+          return True
+
+  class BudgetAwareLLM:
+      def __init__(self, llm, budget: TokenBudget):
+          self.llm = llm
+          self.budget = budget
+
+      def chat(self, messages: list[dict]) -> str:
+          # 1. 估算输入 token
+          input_tokens = estimate_tokens(messages)
+          if input_tokens > self.budget.max_input_tokens:
+              # 超出单次输入上限，先做上下文压缩
+              messages = compress_context(messages, self.budget.max_input_tokens)
+              input_tokens = estimate_tokens(messages)
+
+          # 2. 调用 LLM，限制输出 token
+          response = self.llm.chat(
+              messages,
+              max_tokens=self.budget.max_output_tokens
+          )
+          output_tokens = count_tokens(response)
+
+          # 3. 更新任务预算，检查是否超限
+          if not self.budget.check_and_update(input_tokens, output_tokens):
+              # 任务总 token 超限，触发降级
+              return self._degraded_response()
+
+          return response
+
+      def _degraded_response(self) -> str:
+          return "当前任务已达到 Token 预算上限，请简化问题或开始新对话。"
+
+budget_levels:
+  - level: "调用级（Per-Call）"
+    controls: "max_tokens 参数限制单次输出长度"
+    example: "输出上限 2000 tokens，超出截断"
+
+  - level: "任务级（Per-Task）"
+    controls: "Agent 任务从开始到结束的总 Token 消耗"
+    example: "一个分析任务最多消耗 10 万 tokens"
+
+  - level: "用户级（Per-User）"
+    controls: "每个用户每日/月可消耗的 Token 配额"
+    example: "免费用户每日 10 万 tokens，付费用户 100 万"
+
+  - level: "全局级（Global）"
+    controls: "整个系统的月度 Token 预算告警阈值"
+    example: "月消耗超过 5 亿 tokens 时发送告警并限流"
+
+degradation_strategies:
+  - trigger: "接近预算上限（80%）"
+    action: "上下文压缩，减少输入 token"
+  - trigger: "达到预算上限（100%）"
+    action: "切换到更便宜的小模型（如从 GPT-4o 切到 GPT-4o-mini）"
+  - trigger: "大幅超出预算"
+    action: "拒绝继续，返回提示让用户开启新对话"
+
+best_practices:
+  - "预算告警设在 70-80%，留出缓冲空间做压缩和降级"
+  - "不同质量级别的 LLM 不同预算：复杂推理任务预算高，简单分类任务预算低"
+  - "记录每次任务的实际 Token 用量，用于优化预算设置"
+  - "用户级预算要考虑公平性：防止少数用户占用大量资源"
+
+anti_patterns:
+  - pattern: "不设预算，等账单来了才发现超支"
+    consequence: "一次测试或 bug 可能产生意外的高额费用，财务失控"
+  - pattern: "预算设置过低，正常任务频繁触发降级"
+    consequence: "用户体验差；频繁降级使 AI 功能不可用"
+  - pattern: "超出预算直接报错而非降级"
+    consequence: "任务半途而废，已消耗的 Token 浪费；用户体验差"
+
+relationships:
+  related_to:
+    - id: "KN-C-000070"
+      note: "Semantic Cache 是减少 Token 消耗的互补手段"
+    - id: "KN-C-000067"
+      note: "Context Compression 是 Token Budget 超限时的核心降级手段"
+    - id: "KN-C-000071"
+      note: "Model Routing 在预算紧张时切换到更便宜的模型"
+
+interview_points:
+  - "为什么生产级 AI 系统必须设置 Token 预算？不设有什么风险？"
+  - "Token 预算的四个层级分别控制什么？"
+  - "Token 预算超限时应该怎么处理？直接报错是否合适？"
+  - "如何根据业务场景设计合理的 Token 预算？（L3+ 考察成本意识）"
+
+exam_points:
+  - "Token Budget 四级：调用级 / 任务级 / 用户级 / 全局级"
+  - "超限降级策略：80% 时压缩上下文 → 100% 时切小模型 → 大幅超出时拒绝"
+  - "不能直接报错：要降级而非中断，保障系统可用性"
+  - "记录实际 Token 用量：用于持续优化预算配置"
+
+one_liner: "Token Budget = 给 AI 调用设报销额度，超限触发降级而非报错，把成本从'事后算账'变成'事前管理'。"
+difficulty: intermediate

@@ -1,0 +1,157 @@
+id: "KN-C-000067"
+type: Practice
+name: "Context Compression（上下文压缩）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - memory
+  - context-window
+  - cost
+  - optimization
+
+aliases:
+  - "上下文裁剪"
+  - "Context Pruning"
+  - "对话压缩"
+
+summary: "当对话历史超出 Context Window 或成本过高时，通过摘要、过滤、压缩等手段减少 token 用量，同时保留关键信息。"
+
+definition: |
+  Context Compression 是一类技术手段的总称，用于在 Context Window 容量有限的约束下，
+  最大化保留对 LLM 当前任务有用的信息：
+  - 摘要压缩：用 LLM 生成历史对话的摘要，替代原始消息
+  - 滑动窗口：只保留最近 N 条消息，丢弃早期消息
+  - 重要性过滤：识别并保留关键消息，删除冗余或无关消息
+  - 分层压缩：对不同时期的历史使用不同压缩程度
+
+why: |
+  长对话或长任务中，Context Window 面临两个问题：
+  1. 容量问题：历史消息太多超出 Context Window 上限，报错
+  2. 成本问题：每次调用都发送全部历史，token 成本线性增长
+  （以 GPT-4o 为例，128K token 全满一次调用约 $0.64，
+  生产环境每天数千次调用，成本极高）
+  Context Compression 在保留关键信息的前提下降低成本。
+
+mental_model: |
+  Context Compression = 会议纪要
+  - 开会记录（原始消息）：几十页详细记录
+  - 会议纪要（压缩后）：一页纸列出关键决策和待办事项
+  - 下次开会前：看会议纪要而非翻几十页记录
+  信息量减少了，但关键内容都在。
+
+how_it_works: |
+  # 策略1：摘要压缩（推荐用于长对话）
+  def compress_history_with_summary(
+      messages: list[dict],
+      keep_recent: int = 10
+  ) -> list[dict]:
+      """
+      保留最近 N 条消息，对更早的消息生成摘要
+      """
+      if len(messages) <= keep_recent:
+          return messages
+
+      # 需要压缩的早期消息
+      old_messages = messages[:-keep_recent]
+      recent_messages = messages[-keep_recent:]
+
+      # 用 LLM 生成摘要
+      summary_prompt = [
+          {"role": "system", "content": "请将以下对话历史压缩成简洁摘要，保留所有关键决策、用户偏好和重要信息。"},
+          {"role": "user", "content": str(old_messages)}
+      ]
+      summary = llm.chat(summary_prompt)
+
+      # 用摘要替代早期消息
+      compressed = [
+          {"role": "system", "content": f"[对话历史摘要]\n{summary}"}
+      ] + recent_messages
+
+      return compressed
+
+  # 策略2：重要性过滤
+  IMPORTANT_PATTERNS = [
+      "我的要求是", "记住", "不要", "必须", "用户偏好",
+      "最终决定", "重要", "关键"
+  ]
+
+  def filter_important_messages(messages: list[dict]) -> list[dict]:
+      """保留包含关键词的消息"""
+      return [
+          msg for msg in messages
+          if any(kw in msg.get("content", "") for kw in IMPORTANT_PATTERNS)
+          or msg["role"] == "system"  # 始终保留 system prompt
+      ]
+
+  # 策略3：分层压缩（生产推荐）
+  def tiered_compression(messages: list[dict]) -> list[dict]:
+      """
+      最近 20 条：完整保留
+      20-100 条：摘要压缩
+      100 条以上：只保留关键决策点
+      """
+      if len(messages) <= 20:
+          return messages
+      elif len(messages) <= 100:
+          return compress_history_with_summary(messages, keep_recent=20)
+      else:
+          key_decisions = filter_important_messages(messages[:-100])
+          return key_decisions + compress_history_with_summary(messages[-100:], keep_recent=20)
+
+compression_tradeoffs:
+  - strategy: "滑动窗口"
+    token_savings: "高（丢弃早期全部内容）"
+    info_loss: "高（早期关键信息丢失）"
+    latency: "无额外延迟"
+    use_when: "任务短、早期信息不重要"
+
+  - strategy: "摘要压缩"
+    token_savings: "中高（摘要比原文短 5-10x）"
+    info_loss: "低（关键信息保留在摘要中）"
+    latency: "需要额外一次 LLM 调用（约 1-2s）"
+    use_when: "长对话、需要保留历史上下文"
+
+  - strategy: "重要性过滤"
+    token_savings: "中（取决于过滤规则严格程度）"
+    info_loss: "中（规则无法覆盖所有重要信息）"
+    latency: "无额外 LLM 调用"
+    use_when: "消息结构化程度高、可用关键词标记重要信息"
+
+best_practices:
+  - "压缩触发时机：不要等到 Context Window 快满才压缩，在 80% 时触发"
+  - "摘要中明确标注'这是历史摘要'：让 LLM 知道这是压缩后的信息，不是原始对话"
+  - "System Prompt 永远不压缩：它定义了 Agent 的基本行为，丢失后果严重"
+  - "压缩后做 token 统计校验：确认压缩结果确实在 Context Window 范围内"
+
+anti_patterns:
+  - pattern: "不做任何压缩，等到超出 Context Window 再报错"
+    consequence: "生产环境中长任务报错，用户体验差"
+  - pattern: "压缩时删除 System Prompt"
+    consequence: "LLM 失去角色和约束，行为完全改变"
+  - pattern: "用低质量摘要（如简单截断）替代历史"
+    consequence: "关键上下文丢失，LLM 在后续任务中出错"
+
+relationships:
+  addresses:
+    - id: "KN-C-000065"
+      note: "Context Compression 解决了 Short-term Memory 的 Context Window 容量限制"
+  related_to:
+    - id: "KN-C-000069"
+      note: "Context Compression 同时也是成本优化的重要手段（减少 token 用量）"
+
+interview_points:
+  - "当 Agent 的对话历史超出 Context Window 上限时，你会怎么处理？"
+  - "摘要压缩 vs 滑动窗口，各自的适用场景和缺点是什么？"
+  - "压缩触发时机如何设计？为什么不能等到满了再压缩？"
+  - "如何保证压缩后的上下文不丢失关键信息？（L3+ 考察）"
+
+exam_points:
+  - "Context Compression 三策略：滑动窗口 / 摘要压缩 / 重要性过滤"
+  - "System Prompt 永远不压缩，它是 Agent 行为的基础"
+  - "压缩触发点：Context Window 80% 时触发，而非等到溢出"
+  - "摘要压缩需要额外一次 LLM 调用，会增加延迟和成本（但节省后续调用成本）"
+
+one_liner: "Context Compression = 把长对话历史'浓缩成会议纪要'，在 token 预算内保留最多有效信息。"
+difficulty: intermediate

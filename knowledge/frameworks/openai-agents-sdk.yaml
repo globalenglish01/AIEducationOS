@@ -1,0 +1,150 @@
+id: "KN-F-000005"
+type: Framework
+name: "OpenAI Agents SDK"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - framework
+  - agent
+  - openai
+  - handoff
+
+aliases:
+  - "OpenAI SDK"
+  - "Swarm（前身）"
+  - "openai-agents"
+
+summary: "OpenAI 官方 Agent 框架，以 Agent Handoff（移交）为核心机制，API 极简，适合快速构建基于 OpenAI 模型的单 Agent 和多 Agent 系统。"
+
+definition: |
+  OpenAI Agents SDK 是 OpenAI 官方发布的轻量级 Agent 框架
+  （前身为开源实验项目 Swarm），核心概念：
+  - Agent：有 name、instructions（System Prompt）、tools、handoffs
+  - Tool：Python 函数装饰为 Tool，LLM 可自动调用
+  - Handoff：Agent 将对话控制权移交给另一个 Agent
+  - Runner：执行 Agent 循环，处理工具调用和 Handoff
+
+  SDK 设计哲学：极简。
+  一个 Agent 就是一个 instructions 字符串 + 一组工具/移交目标。
+
+why: |
+  其他框架（LangGraph/CrewAI）的学习曲线较陡峭，
+  对于只用 OpenAI 模型的团队来说，是不必要的复杂度。
+  OpenAI Agents SDK 提供：
+  - 最小依赖：只需 openai-agents 包
+  - 原生 OpenAI：直接利用 Function Calling、Structured Outputs
+  - Agent Handoff：内置的多 Agent 协作机制，不需要 LangGraph 的图结构
+
+mental_model: |
+  OpenAI Agents SDK = 客服转接系统
+  - 前台客服（Triage Agent）：接听所有来电，判断类型
+  - 技术支持（Tech Agent）：处理技术问题
+  - 退款专员（Refund Agent）：处理退款问题
+  - 转接（Handoff）：前台说"我现在把你转接给技术支持"
+    → 技术支持接管对话，前台退出
+  多 Agent 协作 = 客服系统的分机转接，而非复杂的图结构。
+
+core_usage: |
+  from agents import Agent, Runner
+  import asyncio
+
+  # 1. 定义工具（普通 Python 函数）
+  def search_knowledge_base(query: str) -> str:
+      """搜索知识库，返回相关文档"""
+      # 实际实现...
+      return f"关于 '{query}' 的文档内容..."
+
+  def create_ticket(issue: str, priority: str = "normal") -> str:
+      """创建工单"""
+      return f"工单已创建：#{generate_id()}，问题：{issue}，优先级：{priority}"
+
+  # 2. 定义专业 Agent
+  tech_support = Agent(
+      name="技术支持专员",
+      instructions="""你是技术支持专员，负责解决技术问题。
+      处理步骤：
+      1. 先搜索知识库查找解决方案
+      2. 如果知识库没有，创建工单并通知用户
+      3. 始终保持专业、耐心的态度""",
+      tools=[search_knowledge_base, create_ticket]
+  )
+
+  refund_agent = Agent(
+      name="退款专员",
+      instructions="你是退款处理专员，负责处理退款申请，验证资格，处理退款流程",
+      tools=[verify_purchase, process_refund]
+  )
+
+  # 3. 定义 Triage Agent（带 Handoff）
+  triage_agent = Agent(
+      name="前台客服",
+      instructions="""你是前台客服，判断用户问题类型并转接：
+      - 技术问题 → 转接技术支持
+      - 退款问题 → 转接退款专员
+      - 简单问题 → 直接回答""",
+      handoffs=[tech_support, refund_agent]  # 可移交的 Agent 列表
+  )
+
+  # 4. 执行（Runner 管理整个 Agent 循环）
+  async def main():
+      result = await Runner.run(
+          triage_agent,
+          "我的账号登录不了，一直显示密码错误"
+      )
+      print(result.final_output)
+
+  asyncio.run(main())
+
+handoff_mechanism: |
+  Handoff 的执行过程：
+  1. triage_agent 判断是技术问题
+  2. LLM 调用内置的 handoff 工具：transfer_to_技术支持专员()
+  3. Runner 检测到 Handoff，将对话历史传给 tech_support
+  4. tech_support 接管，成为新的活跃 Agent
+  5. triage_agent 退出循环
+
+  关键：Handoff 后对话历史会传递给新 Agent（有上下文连续性）
+  与 function call 的区别：Handoff 改变了活跃 Agent，不是调用工具后返回
+
+openai_sdk_vs_others:
+  vs_langgraph: "OpenAI SDK 更简单（无图结构），但没有 Checkpoint/Human-in-the-Loop；生产复杂系统选 LangGraph"
+  vs_crewai: "OpenAI SDK 面向对话/客服场景，CrewAI 面向任务完成/内容生成场景"
+  vs_autogen: "OpenAI SDK Handoff 是同步转接，AutoGen 是持续对话；前者更结构化"
+  best_for: "OpenAI 技术栈、客服机器人、简单多 Agent 分诊系统"
+
+best_practices:
+  - "instructions 要写清楚 Handoff 条件：'当用户问退款时，转接退款专员'（避免 LLM 猜测）"
+  - "用 input_guardrails 在入口过滤恶意输入（SDK 内置支持）"
+  - "生产中设置 max_turns：防止 Agent 无限循环"
+  - "开启 tracing：Runner 内置 OpenAI 的追踪支持，生产调试必备"
+
+anti_patterns:
+  - pattern: "Handoff 链条过深（A→B→C→D→E）"
+    consequence: "对话历史叠加导致 Context 膨胀，后面的 Agent 被前面的历史淹没"
+  - pattern: "把所有工具都给 Triage Agent，而不是分配给专业 Agent"
+    consequence: "Triage Agent 变成上帝 Agent，违反职责分离"
+
+relationships:
+  alternative_to:
+    - id: "KN-F-000002"
+      note: "OpenAI SDK（简单 Handoff）是 LangGraph（图状态机）的轻量级替代，适合 OpenAI 技术栈"
+  predecessor:
+    - id: "KN-C-000020"
+      note: "OpenAI Agents SDK 的前身 Swarm 是最早演示 Multi-Agent Handoff 概念的框架"
+
+interview_points:
+  - "OpenAI Agents SDK 中 Handoff 和普通 Tool Call 的区别是什么？"
+  - "Handoff 发生时，对话历史是如何传递给新 Agent 的？"
+  - "什么场景选 OpenAI Agents SDK，什么场景选 LangGraph？"
+  - "如何防止 Handoff 链导致的 Context 膨胀问题？（L2+ 考察）"
+
+exam_points:
+  - "OpenAI Agents SDK 核心：Agent（instructions+tools+handoffs）+ Runner"
+  - "Handoff：Agent 移交控制权，对话历史传递给新 Agent"
+  - "vs Tool Call：Handoff 改变活跃 Agent，Tool Call 调用后返回原 Agent"
+  - "适合：OpenAI 技术栈、客服分诊；不适合：需要 Checkpoint 的复杂长任务"
+
+one_liner: "OpenAI Agents SDK = 客服转接系统：Agent 把对话移交（Handoff）给专业同事，极简 API，适合 OpenAI 技术栈的多 Agent 分诊。"
+difficulty: beginner

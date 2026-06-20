@@ -1,0 +1,175 @@
+id: "KN-C-000080"
+type: Concept
+name: "AI Fairness（AI 公平性）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L3-L4"
+tags:
+  - governance
+  - fairness
+  - bias
+  - ethics
+
+aliases:
+  - "AI 公平性"
+  - "算法公平"
+  - "偏见检测"
+  - "Bias Mitigation"
+
+summary: "确保 AI 系统对不同人群（性别/种族/年龄等）的决策结果不存在系统性偏见，通过数据审计、偏见评估指标、去偏处理保障公平。"
+
+definition: |
+  AI Fairness 是 AI 系统对不同群体（受保护属性：性别、种族、年龄、宗教等）
+  的决策结果在统计意义上满足公平性约束的能力。
+
+  AI 偏见的来源：
+  1. 训练数据偏见：历史数据本身包含歧视性模式（如历史招聘数据男性为主）
+  2. 特征选择偏见：使用了与受保护属性相关的代理特征（如邮政编码与种族相关）
+  3. 模型放大偏见：LLM 在预训练时学习了互联网上的偏见性内容
+  4. 评估偏见：测试数据不代表真实用户分布
+
+why: |
+  AI 偏见不只是伦理问题，也是法律和商业问题：
+  - 法律风险：AI 招聘工具对女性的通过率明显低于男性，构成性别歧视
+  - 声誉风险：AI 算法歧视事件被媒体曝光，导致用户流失和品牌损伤
+  - 监管风险：欧盟 AI 法案明确要求高风险 AI 系统做公平性评估
+
+  历史真实案例：
+  - Amazon 于 2018 年废弃 AI 招聘工具，因为其对女性简历系统性降权
+  - COMPAS 犯罪风险评估算法被发现对黑人有更高的错误高风险预测率
+
+mental_model: |
+  AI 公平性 = 考试评分的公正性
+
+  如果一套数学考试的答题纸：
+  - 对男生的评分标准严格一些（通过率 60%）
+  - 对女生的评分标准宽松一些（通过率 80%）
+  这不是"公平"，这是偏见——即使平均分相同。
+
+  AI 公平性评估就是"审查评分标准"：
+  用数字证明不同群体在相同能力水平下，得到相同结果。
+
+fairness_metrics:
+  - metric: "Demographic Parity（人口统计平等）"
+    definition: "不同群体的正向预测率相同"
+    formula: "P(Y_hat=1 | A=male) = P(Y_hat=1 | A=female)"
+    example: "贷款审批通过率：男性 70% vs 女性 70%"
+    limitation: "不考虑实际资质差异，可能导致反向歧视"
+
+  - metric: "Equal Opportunity（机会均等）"
+    definition: "在真正满足条件的群体中，不同组的通过率相同"
+    formula: "P(Y_hat=1 | Y=1, A=male) = P(Y_hat=1 | Y=1, A=female)"
+    example: "真正有还款能力的申请人中，男女通过率相同"
+    recommendation: "比 Demographic Parity 更合理，推荐用于招聘/贷款场景"
+
+  - metric: "Calibration（校准）"
+    definition: "模型的预测概率在不同群体中都是准确的"
+    example: "模型预测 70% 概率违约的借款人，在男女群体中真实违约率都接近 70%"
+    use_when: "评估风险预测模型（信用评分、犯罪风险）"
+
+llm_bias_evaluation: |
+  LLM 的偏见更难检测，需要专门的评估方法：
+
+  # 1. 对抗性测试（职业关联偏见）
+  test_pairs = [
+      ("他是一名护士，他", "她是一名护士，她"),      # 护士职业与性别
+      ("这位工程师设计了...", "这位工程师设计了..."),  # 改变隐含性别
+  ]
+  # 如果完成句子有系统性差异，说明存在偏见
+
+  # 2. 职业-性别关联评估（WEAT 测试变体）
+  def evaluate_gender_occupation_bias(llm):
+      occupations = ["CEO", "护士", "工程师", "教师", "清洁工"]
+      for occ in occupations:
+          male_prompt = f"一个{occ}走进会议室，他"
+          female_prompt = f"一个{occ}走进会议室，她"
+          male_cont = llm.complete(male_prompt)
+          female_cont = llm.complete(female_prompt)
+          # 分析后续描述是否有系统性差异（权威/从属性词汇频率）
+          analyze_power_language_ratio(male_cont, female_cont)
+
+  # 3. 种族/文化偏见评估
+  names = {
+      "西方名字": ["Emily", "Michael", "Sarah"],
+      "亚裔名字": ["Wei", "Priya", "Kenji"],
+      "非裔名字": ["Jamal", "Latoya", "DeShawn"]
+  }
+  # 测试相同简历配不同名字时，AI 的评价是否有差异
+
+bias_mitigation_strategies:
+  - strategy: "数据层去偏（Pre-processing）"
+    description: "在训练/评估数据中检测和纠正偏见"
+    methods:
+      - "重采样：增加代表性不足的群体样本"
+      - "重新标注：修正带有偏见的标签"
+      - "特征去除：删除与受保护属性直接相关的特征"
+
+  - strategy: "Prompt 层去偏（In-processing for LLM）"
+    description: "在 Prompt 中明确要求 LLM 公平对待所有群体"
+    example: |
+      system_prompt = """
+      你是一个客观公正的评估助手。
+      在评估简历时，请完全基于技能、经验和成就做判断。
+      不要受应聘者姓名、性别、年龄、种族等与工作能力无关的因素影响。
+      如果你发现自己在做与能力无关的判断，请停止并重新评估。
+      """
+
+  - strategy: "输出层监控（Post-processing）"
+    description: "监控 AI 输出的群体差异，超出阈值时告警和干预"
+    example: |
+      def monitor_fairness(decisions: list[dict], protected_attr: str):
+          """监控 AI 决策的群体通过率差异"""
+          groups = {}
+          for d in decisions:
+              group = d[protected_attr]  # 如 "male" / "female"
+              groups.setdefault(group, {"pass": 0, "total": 0})
+              groups[group]["total"] += 1
+              if d["decision"] == "approved":
+                  groups[group]["pass"] += 1
+
+          rates = {g: v["pass"]/v["total"] for g, v in groups.items()}
+          max_rate = max(rates.values())
+          min_rate = min(rates.values())
+          disparity = max_rate - min_rate
+
+          if disparity > 0.1:  # 超过 10% 差异触发告警
+              alert(f"公平性告警：群体通过率差异 {disparity:.1%}")
+          return rates
+
+best_practices:
+  - "定期运行公平性审计（至少每季度一次），而非只在上线前做一次"
+  - "建立公平性测试数据集，覆盖各受保护群体的代表性样本"
+  - "在 Prompt 中明确要求 LLM 公平对待所有群体，并测试验证"
+  - "对高风险场景（招聘/贷款/医疗）必须有人工复核机制"
+
+anti_patterns:
+  - pattern: "认为'LLM 只是工具，偏见责任在用户'"
+    consequence: "法律责任仍在 AI 系统提供商，无法以此为由免责"
+  - pattern: "只在上线前做一次公平性评估"
+    consequence: "数据分布变化或模型更新后偏见重新出现，无法及时发现"
+  - pattern: "用'整体准确率高'掩盖群体间的差异"
+    consequence: "总体 95% 准确率可能对某个少数群体只有 70%，被平均值掩盖"
+
+relationships:
+  part_of:
+    - id: "KN-C-000078"
+      note: "AI Fairness 是 FCARS 框架中 Fairness（F）维度的详细展开"
+  evaluated_by:
+    - id: "KN-C-000036"
+      note: "LLM-as-Judge 可用于评估 AI 输出的公平性"
+
+interview_points:
+  - "AI 偏见的四个主要来源是什么？各举一个例子。"
+  - "Demographic Parity 和 Equal Opportunity 有什么区别？各适合什么场景？"
+  - "如何检测 LLM 中是否存在性别/种族偏见？描述一个具体测试方法。"
+  - "发现 AI 系统存在偏见后，应该采取哪些措施？（L4 考察系统性思维）"
+
+exam_points:
+  - "AI 偏见四来源：训练数据偏见 / 特征选择偏见 / 模型放大偏见 / 评估偏见"
+  - "三个公平性指标：Demographic Parity / Equal Opportunity / Calibration"
+  - "Equal Opportunity 优于 Demographic Parity：考虑了实际资质差异"
+  - "去偏三层：数据层（重采样）/ Prompt 层（明确要求公平）/ 输出层（监控差异）"
+
+one_liner: "AI 公平性 = 用数字证明不同群体被同等对待，定期运行偏见审计，而非靠'我们没有歧视的主观意图'来保证。"
+difficulty: expert

@@ -1,0 +1,150 @@
+id: "KN-C-000068"
+type: Practice
+name: "Memory Isolation（记忆隔离）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - memory
+  - security
+  - multi-tenant
+  - isolation
+
+aliases:
+  - "记忆隔离"
+  - "多用户记忆隔离"
+  - "Memory Namespace"
+
+summary: "在多用户或多会话场景中，确保每个用户/会话的记忆数据严格隔离，防止一个用户的记忆被另一个用户读取或污染。"
+
+definition: |
+  Memory Isolation 是 AI 系统在多租户（Multi-tenant）场景下的安全要求：
+  - 用户级隔离：用户A的长期记忆不能被用户B检索到
+  - 会话级隔离：不同会话之间的短期记忆不共享（防止串话）
+  - 命名空间隔离：通过 user_id / session_id / project_id 对记忆数据分区
+
+  违反记忆隔离会导致严重的隐私泄露（IDOR 漏洞），
+  是 AI 应用中最常见的安全缺陷之一。
+
+why: |
+  SaaS 平台上有数千名用户，他们的对话记忆是私密数据：
+  - 用户的工作项目、代码、决策记录
+  - 个人偏好、职业背景
+  - 公司机密信息
+  如果没有隔离，一个用户可能（有意无意地）检索到其他用户的记忆，
+  导致隐私泄露和合规违规（GDPR等）。
+
+mental_model: |
+  记忆隔离 = 医院病历系统
+  - 每位病人（用户）有独立的病历本（记忆空间）
+  - 医生（Agent）只能查看当前病人的病历，无法跨越访问
+  - 病历用病人ID严格分区，查询时必须携带正确ID
+  - 即使两个病人症状相同，病历也不能混在一起
+
+  安全对比：
+  - ✅ 正确：按 patient_id 查询 → SELECT * FROM memory WHERE user_id = ?
+  - ❌ 错误：全局查询 → SELECT * FROM memory WHERE symptom LIKE '%头痛%'
+
+how_it_works: |
+  # === 短期记忆（会话级）隔离 ===
+
+  # LangGraph 使用 thread_id 隔离不同会话的状态
+  from langgraph.checkpoint.postgres import PostgresSaver
+
+  checkpointer = PostgresSaver(conn)
+  graph = workflow.compile(checkpointer=checkpointer)
+
+  # 每个会话用唯一 thread_id，状态自动隔离
+  user_a_thread = {"configurable": {"thread_id": f"user_a_{session_id}"}}
+  user_b_thread = {"configurable": {"thread_id": f"user_b_{session_id}"}}
+
+  # 两个调用的状态完全独立
+  graph.invoke({"message": "你好"}, user_a_thread)
+  graph.invoke({"message": "你好"}, user_b_thread)
+
+  # === 长期记忆（用户级）隔离 ===
+
+  class IsolatedMemoryStore:
+      def __init__(self, db):
+          self.db = db
+
+      def save(self, user_id: str, content: str, metadata: dict = None):
+          # 强制写入 user_id，禁止外部覆盖
+          self.db.insert("memories", {
+              "user_id": user_id,  # 必须来自认证系统，不能来自用户输入
+              "content": content,
+              "metadata": metadata or {}
+          })
+
+      def search(self, user_id: str, query: str) -> list[dict]:
+          # 强制带 user_id 过滤，绝对不做全局搜索
+          return self.db.vector_search(
+              query=query,
+              filter={"user_id": user_id},  # ← 这行是安全关键
+              limit=5
+          )
+
+      # 错误示范（永远不要这样做）：
+      # def search_all(self, query: str):  # 无 user_id 过滤
+      #     return self.db.vector_search(query=query)  # 返回所有用户数据！
+
+  # === user_id 必须来自认证系统，不能来自请求参数 ===
+  @app.post("/chat")
+  async def chat(request: ChatRequest, current_user = Depends(get_current_user)):
+      user_id = current_user.id  # ✅ 来自 JWT token，用户无法伪造
+      # user_id = request.user_id  # ❌ 来自请求体，可被攻击者伪造
+
+      memories = memory_store.search(user_id, request.message)
+      # ...
+
+isolation_layers:
+  - layer: "会话级（Session Isolation）"
+    mechanism: "唯一 thread_id / session_id 标识每个会话"
+    prevents: "不同对话的短期记忆串话"
+
+  - layer: "用户级（User Isolation）"
+    mechanism: "所有长期记忆查询强制附带 user_id 过滤"
+    prevents: "用户A读取用户B的长期记忆"
+
+  - layer: "项目级（Project Isolation）"
+    mechanism: "企业客户的数据按 project_id / tenant_id 分区"
+    prevents: "企业A的数据被企业B访问"
+
+common_vulnerabilities:
+  - vuln: "IDOR（越权访问）：user_id 来自请求参数"
+    example: "GET /api/memory?user_id=victim_id → 返回受害者记忆"
+    fix: "user_id 必须从 JWT token 提取，不接受客户端传入"
+
+  - vuln: "全局记忆检索：搜索时没有 user_id 过滤"
+    example: "memory.search('公司密钥') → 返回所有用户提到密钥的记忆"
+    fix: "搜索接口强制要求 user_id 参数，设为必填"
+
+  - vuln: "会话记忆共享：多用户复用同一 thread_id"
+    example: "所有用户的状态都写入 thread_id='default'"
+    fix: "thread_id = f'{user_id}_{session_id}'，确保唯一性"
+
+relationships:
+  secures:
+    - id: "KN-C-000066"
+      note: "Long-term Memory 的多用户场景必须实现 Memory Isolation"
+    - id: "KN-C-000065"
+      note: "Short-term Memory 通过 thread_id 实现会话级隔离"
+  related_security:
+    - id: "KN-C-000041"
+      note: "Memory Isolation 违反属于 IDOR 漏洞（Agent 权限升级的一种形式）"
+
+interview_points:
+  - "如何确保多用户 AI 应用中用户A无法读取用户B的记忆？"
+  - "user_id 为什么必须来自认证系统，而不能来自用户请求参数？"
+  - "LangGraph 如何通过 thread_id 实现会话级隔离？"
+  - "如果长期记忆搜索没有 user_id 过滤，会导致什么安全问题？（L3+ 考察 IDOR）"
+
+exam_points:
+  - "三级隔离：会话级（thread_id）/ 用户级（user_id 过滤）/ 项目级（tenant_id）"
+  - "user_id 必须来自 JWT token，不能接受客户端传入（防 IDOR）"
+  - "记忆搜索必须强制附带 user_id 过滤，禁止全局搜索"
+  - "IDOR 漏洞：越权访问其他用户数据，违反记忆隔离是典型场景"
+
+one_liner: "记忆隔离 = 每个用户的记忆空间严格按 user_id 分区，任何跨用户查询都是安全漏洞。"
+difficulty: intermediate

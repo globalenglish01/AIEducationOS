@@ -1,0 +1,158 @@
+id: "KN-C-000078"
+type: Architecture
+name: "FCARS 框架（AI 治理框架）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L3-L4"
+tags:
+  - governance
+  - fcars
+  - ai-ethics
+  - compliance
+
+aliases:
+  - "FCARS"
+  - "AI 治理框架"
+  - "Fairness Compliance Accountability Reliability Safety"
+
+summary: "AI 治理的五维框架：公平性（F）、合规性（C）、问责性（A）、可靠性（R）、安全性（S），是 L3+ 工程师评估 AI 系统是否达到生产标准的核心工具。"
+
+definition: |
+  FCARS 是 AI Native Engineer 用于系统性评估和改进 AI 系统治理水平的框架，
+  包含五个维度，每个维度有明确的工程实现要求：
+
+  F - Fairness（公平性）：AI 输出不应包含不当偏见，对不同群体公平对待
+  C - Compliance（合规性）：符合适用法律法规（GDPR、数据主权、行业规范）
+  A - Accountability（问责性）：AI 决策链路可追溯、可解释、有人负责
+  R - Reliability（可靠性）：系统 SLA 有保障，故障率受控，能从故障中恢复
+  S - Safety（安全性）：防止 AI 被滥用或产生有害输出，有内容过滤和攻击防御
+
+why: |
+  AI 系统上线不只是"功能好用"那么简单，企业和监管机构有更高要求：
+  - 法律合规：GDPR 违规可处年营业额 4% 的罚款
+  - 公平性：AI 招聘系统如果有性别/种族偏见，会有法律风险
+  - 问责性：AI 医疗诊断出错，谁负责？必须有清晰的责任链
+  - 可靠性：金融 AI 系统宕机，每分钟损失可能数百万
+  FCARS 提供了一个系统性的检查框架，确保 AI 系统在这五个维度都达标。
+
+mental_model: |
+  FCARS = 飞机适航检查的 AI 版本
+
+  飞机上天前有适航证，检查 5 大系统：
+  - 结构完整性（可靠性 R）：机体是否能承受极端情况？
+  - 导航系统（准确性）：能否到达目的地？
+  - 紧急系统（安全性 S）：出故障时能否保护乘客？
+  - 飞行记录仪（问责性 A）：出事故能否还原经过？
+  - 适航许可（合规性 C）：是否符合民航局要求？
+
+  AI 系统也需要类似的适航检查，FCARS 就是那个检查清单。
+
+fcars_dimensions:
+  - dimension: "Fairness（公平性）"
+    what: "AI 输出对不同人群（性别/种族/年龄/地区）不存在系统性偏见"
+    why_it_matters: "AI 招聘/贷款/医疗决策中的偏见会导致歧视，违反反歧视法律"
+    engineering_implementation:
+      - "构建公平性评估数据集：覆盖不同人群的代表性样本"
+      - "定期运行公平性审计：比较不同群体的 AI 决策通过率差异"
+      - "偏见检测指标：Demographic Parity / Equal Opportunity / Calibration"
+    check_questions:
+      - "AI 对男性/女性的简历评分是否存在系统性差异？"
+      - "AI 对不同种族用户的贷款审批通过率是否相近？"
+      - "评估数据集是否包含了所有受影响群体？"
+
+  - dimension: "Compliance（合规性）"
+    what: "AI 系统的数据处理和决策符合适用法律法规"
+    why_it_matters: "GDPR、CCPA、行业规范（医疗 HIPAA、金融 SOX）违规有高额罚款和法律责任"
+    engineering_implementation:
+      - "数据主权：用户数据存储在用户所在地区（EU 数据不出 EU）"
+      - "知情同意记录：用户同意了 AI 处理其数据，有记录可查"
+      - "数据删除能力：用户行使'被遗忘权'时，能删除所有相关数据"
+      - "审计日志：所有 AI 决策有完整记录，监管机构可查"
+    check_questions:
+      - "用户数据存储在哪个地区？是否符合数据主权要求？"
+      - "有没有记录用户对 AI 数据处理的知情同意？"
+      - "如果用户要求删除数据，能否完整执行（包括向量数据库中的 Embedding）？"
+
+  - dimension: "Accountability（问责性）"
+    what: "AI 的每个决策都有清晰的责任链，可追溯、可解释"
+    why_it_matters: "AI 出错时，必须能回答'谁做了这个决策？基于什么数据？谁批准了？'"
+    engineering_implementation:
+      - "决策链路追踪：每个 AI 决策关联完整的 Trace（输入/输出/Prompt/版本）"
+      - "Human-in-the-Loop 记录：谁在什么时间批准了什么高风险操作"
+      - "模型版本记录：用了哪个版本的模型，用了哪个版本的 Prompt"
+      - "可解释性报告：对于重大决策，能生成自然语言解释"
+    check_questions:
+      - "如果 AI 拒绝了用户的贷款申请，能否告诉用户是基于什么因素？"
+      - "3 个月前 AI 做了某个决策，现在能还原当时的完整执行链路吗？"
+      - "高风险操作（删除、付款）有没有记录谁批准了？"
+
+  - dimension: "Reliability（可靠性）"
+    what: "AI 系统有明确的 SLA 保障，故障率受控，能从故障中恢复"
+    why_it_matters: "不可靠的 AI 系统在关键业务中会造成直接损失"
+    engineering_implementation:
+      - "定义 SLO：P95 延迟 < 5s，月可用率 > 99.9%，错误率 < 0.1%"
+      - "Chaos Engineering：定期演练故障场景，验证降级策略有效"
+      - "Checkpoint/Resume：长任务断点续跑，避免重复计费和工作丢失"
+      - "告警机制：SLO 违反时自动告警，MTTDetect < 5min"
+    check_questions:
+      - "系统的 SLO 是多少？最近 30 天是否都达标？"
+      - "LLM API 超时时，系统会怎么处理？有没有演练过？"
+      - "最近一次生产故障，从发现到恢复花了多长时间（MTTR）？"
+
+  - dimension: "Safety（安全性）"
+    what: "防止 AI 被攻击或滥用产生有害输出，有主动防御机制"
+    why_it_matters: "AI 生成有害内容、被 Injection 攻击、泄露用户数据，都是严重安全事故"
+    engineering_implementation:
+      - "输入过滤：检测 Prompt Injection、有害内容请求、PII"
+      - "输出过滤：拦截有害内容、敏感信息泄露、系统提示泄露"
+      - "权限最小化：Agent 只有完成任务所需的最小工具权限"
+      - "定期安全审计：OWASP AI Security Top 10 检查清单"
+    check_questions:
+      - "如果用户尝试 Prompt Injection，系统会被绕过吗？"
+      - "AI 输出中有没有可能泄露其他用户的数据或 API Key？"
+      - "上次安全审计是什么时候？发现了什么问题？"
+
+fcars_audit_process: |
+  FCARS 审计流程（L3+ 工程师执行）：
+
+  1. 准备阶段：
+     - 收集系统文档（架构图、数据流图、Prompt 版本）
+     - 确定审计范围（全系统 or 特定功能）
+
+  2. 逐维度审查：
+     - 对每个维度（F/C/A/R/S）回答检查问题
+     - 标记发现的问题（Critical / High / Medium / Low）
+
+  3. 输出报告：
+     - FCARS 评分（每维度 0-10 分）
+     - Critical/High 问题列表
+     - 改进建议（按优先级排序）
+
+  4. 修复验证：
+     - Critical 问题必须在上线前修复
+     - High 问题制定修复计划，并设定截止时间
+
+relationships:
+  related_to:
+    - id: "KN-C-000079"
+      note: "AI Ethics Policy 是 FCARS 框架中 Fairness 和 Safety 维度的政策基础"
+    - id: "KN-C-000053"
+      note: "Chaos Engineering 支撑 FCARS 中的 Reliability 维度验证"
+    - id: "KN-C-000042"
+      note: "Guardrails 是 FCARS Safety 维度的核心工程实现"
+
+interview_points:
+  - "FCARS 五个维度分别是什么？各举一个工程实现的例子。"
+  - "为什么 AI 系统需要 Accountability？和传统软件系统有什么不同？"
+  - "如何验证一个 AI 系统在 Fairness 维度达标？需要什么数据？"
+  - "如果用户行使 GDPR 的'被遗忘权'，AI 系统需要删除哪些数据？（L3+ 考察合规深度）"
+
+exam_points:
+  - "FCARS = Fairness / Compliance / Accountability / Reliability / Safety"
+  - "Accountability 核心：决策链路可追溯 + Human-in-the-Loop 记录 + 模型版本记录"
+  - "Compliance 核心：数据主权 + 知情同意 + 被遗忘权 + 审计日志"
+  - "Safety 核心：输入过滤 + 输出过滤 + 最小权限 + 定期安全审计"
+
+one_liner: "FCARS = AI 系统的适航证检查清单：公平、合规、问责、可靠、安全五维度全过关，才能放心上线。"
+difficulty: expert

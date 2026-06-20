@@ -1,0 +1,137 @@
+id: "KN-C-000062"
+type: Practice
+name: "Tool Path Sandbox（工具沙箱隔离）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - mcp
+  - security
+  - sandbox
+  - tool-use
+
+aliases:
+  - "Tool Sandbox"
+  - "工具沙箱"
+  - "路径白名单"
+
+summary: "通过白名单/黑名单、进程隔离、资源限制等手段，约束 Agent Tool 的执行权限，防止工具被滥用或攻击者借工具越权操作。"
+
+definition: |
+  Tool Path Sandbox 是一套限制 Agent 工具执行环境的安全机制：
+  - 路径白名单/黑名单：限制文件操作工具可访问的目录范围
+  - 进程隔离：在独立容器或沙箱进程中执行危险操作
+  - 资源限制：限制工具可使用的 CPU、内存、网络、时间
+  - 网络隔离：限制工具可访问的外部地址范围
+  核心思想：即使 Agent 被攻击或产生幻觉，工具能做的最大破坏也被限制在预设范围内。
+
+why: |
+  Agent 通过 Tool 与真实世界交互，工具不受限等于 Agent 不受限：
+  - 文件操作工具：未限制路径可读取 .env、~/.ssh/id_rsa、数据库连接串
+  - 代码执行工具：未隔离可执行任意 shell 命令、安装恶意依赖
+  - 网络请求工具：未限制可将内部数据发送到外部攻击者服务器
+  Prompt Injection 或 LLM 幻觉都可能触发工具滥用，沙箱是最后一道防线。
+
+mental_model: |
+  Tool Sandbox = 手术室无菌区
+  - 手术刀（工具）功能强大，但只能在手术室（沙箱）内使用
+  - 手术室外（沙箱外）的东西，手术刀碰不到
+  - 即使手术刀被"病毒污染"（工具被攻击），影响也被限制在无菌区内
+
+  另一个类比：银行保险库
+  - 银行职员（Agent）可以操作柜台（允许的工具）
+  - 但无法进入保险库后台（沙箱外的敏感系统）
+  - 即使职员被"策反"，能取走的也只有柜台范围内的东西
+
+implementation: |
+  # 1. 文件路径白名单（Python 示例）
+  ALLOWED_PATHS = [
+      "/workspace/data/",
+      "/tmp/agent_output/"
+  ]
+  BLOCKED_PATHS = [
+      "/etc/", "~/.ssh/", ".env", ".git/"
+  ]
+
+  def safe_read_file(file_path: str) -> str:
+      """只允许读取白名单目录内的文件"""
+      abs_path = os.path.abspath(file_path)
+      if not any(abs_path.startswith(p) for p in ALLOWED_PATHS):
+          raise PermissionError(f"路径不在允许范围内: {file_path}")
+      if any(blocked in abs_path for blocked in BLOCKED_PATHS):
+          raise PermissionError(f"路径被明确禁止: {file_path}")
+      with open(abs_path) as f:
+          return f.read()
+
+  # 2. 代码执行沙箱（Docker 隔离）
+  def execute_code_in_sandbox(code: str) -> str:
+      """在 Docker 容器中执行代码，资源受限"""
+      result = subprocess.run([
+          "docker", "run", "--rm",
+          "--memory=256m",           # 内存限制
+          "--cpus=0.5",              # CPU 限制
+          "--network=none",          # 禁止网络访问
+          "--read-only",             # 只读文件系统
+          "-v", "/tmp/sandbox:/workspace",  # 只挂载沙箱目录
+          "python:3.11-slim",
+          "python", "-c", code
+      ], capture_output=True, timeout=30)  # 执行超时 30s
+      return result.stdout.decode()
+
+  # 3. 网络请求白名单
+  ALLOWED_DOMAINS = ["api.openai.com", "internal.company.com"]
+
+  def safe_http_get(url: str) -> str:
+      """只允许请求白名单域名"""
+      from urllib.parse import urlparse
+      domain = urlparse(url).netloc
+      if domain not in ALLOWED_DOMAINS:
+          raise PermissionError(f"域名不在白名单: {domain}")
+      return requests.get(url, timeout=10).text
+
+sandbox_layers:
+  - layer: "路径控制"
+    description: "白名单限制可读写路径，黑名单明确禁止敏感路径"
+    blocks: "读取 .env / SSH 密钥 / 数据库配置"
+  - layer: "进程隔离"
+    description: "Docker/gVisor 容器隔离，代码执行不影响宿主机"
+    blocks: "任意 shell 命令、安装恶意包"
+  - layer: "资源限制"
+    description: "CPU/内存/时间上限，防止资源耗尽攻击"
+    blocks: "死循环、内存溢出、挖矿"
+  - layer: "网络隔离"
+    description: "禁止或白名单限制外部网络访问"
+    blocks: "数据外泄到攻击者服务器"
+
+anti_patterns:
+  - pattern: "文件工具不做路径校验，直接 open(user_provided_path)"
+    consequence: "Agent 可读取宿主机任意文件，包括密钥和配置"
+  - pattern: "代码执行工具直接在宿主机进程中运行"
+    consequence: "被注入的恶意代码可操作整个系统"
+  - pattern: "沙箱超时设置过长（>5分钟）"
+    consequence: "Agent 被故意构造的死循环卡死，资源耗尽"
+
+relationships:
+  related_concepts:
+    - id: "KN-C-000060"
+      note: "MCP Server 中的 Tool 需要沙箱保护"
+    - id: "KN-C-000041"
+      note: "Tool Sandbox 是防止 Agent 权限升级漏洞的核心手段"
+    - id: "KN-C-000043"
+      note: "Tool Injection 攻击的主要防御层就是沙箱"
+
+interview_points:
+  - "为什么给 Agent 的文件读取工具设置路径白名单？不设会有什么风险？"
+  - "代码执行工具如何实现沙箱隔离？Docker 方案的优缺点是什么？"
+  - "网络请求工具的白名单如何设计？如何处理动态域名需求？"
+  - "沙箱的四层防护分别防御哪类攻击？（L3+ 考察纵深防御思维）"
+
+exam_points:
+  - "Tool Sandbox 四层：路径控制 / 进程隔离 / 资源限制 / 网络隔离"
+  - "路径白名单优于黑名单：黑名单容易遗漏，白名单默认拒绝更安全"
+  - "代码执行必须容器隔离：Docker --network=none --read-only --memory=256m"
+  - "超时是必须的：防止死循环耗尽资源，建议 30s 以内"
+
+one_liner: "Tool Sandbox = 给工具划定活动范围，即使 Agent 被攻击，最大破坏也被限制在沙箱内。"
+difficulty: advanced

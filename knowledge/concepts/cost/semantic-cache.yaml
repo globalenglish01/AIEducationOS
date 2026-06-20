@@ -1,0 +1,157 @@
+id: "KN-C-000070"
+type: Pattern
+name: "Semantic Cache（语义缓存）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - cost
+  - cache
+  - optimization
+  - rag
+
+aliases:
+  - "语义缓存"
+  - "LLM Cache"
+  - "Response Cache"
+
+summary: "将 LLM 的问题和回答缓存起来，当新问题与缓存问题语义相似时直接返回缓存结果，避免重复调用 LLM，大幅降低成本和延迟。"
+
+definition: |
+  Semantic Cache 是基于语义相似度的 LLM 响应缓存机制：
+  - 传统缓存：完全相同的 key 才命中（字符串精确匹配）
+  - 语义缓存：语义相近的问题命中同一缓存（向量相似度匹配）
+
+  工作流程：
+  1. 新问题到来，计算问题的 Embedding 向量
+  2. 在缓存向量库中搜索最相似的历史问题
+  3. 相似度 > 阈值（如 0.95）→ 直接返回缓存答案
+  4. 相似度 < 阈值 → 调用 LLM，将结果存入缓存
+
+why: |
+  生产环境中，大量用户的问题存在高度重复：
+  - "Python 怎么读文件？" 和 "Python 如何读取文件？" 语义相同
+  - 传统精确匹配缓存：不命中（字符串不同）→ 重复调用 LLM
+  - 语义缓存：命中（语义相同）→ 直接返回，零 LLM 调用成本
+  实际生产中，语义缓存命中率可达 30-60%，大幅降低 LLM 调用次数。
+
+mental_model: |
+  Semantic Cache = 智能搜索引擎的缓存
+  - 普通 HTTP 缓存：URL 完全一样才命中（精确匹配）
+  - Semantic Cache：意思一样就命中（语义匹配）
+  类比图书馆：
+  - 你问"有没有讲 AI 的书？"
+  - 图书馆员（缓存系统）知道上次有人问"有什么人工智能书籍推荐？"
+  - 两个问题意思一样，直接给同样的答案，不需要重新查目录（调用 LLM）
+
+how_it_works: |
+  from langchain.cache import GPTCache
+  from gptcache import Cache
+  from gptcache.embedding import Onnx
+  from gptcache.similarity_evaluation import SearchDistanceEvaluation
+  from gptcache.manager import get_data_manager
+
+  # 方案1：使用 GPTCache（生产推荐）
+  cache = Cache()
+  cache.init(
+      embedding_func=Onnx().to_embeddings,
+      data_manager=get_data_manager(),
+      similarity_evaluation=SearchDistanceEvaluation(),
+  )
+
+  # 方案2：自实现语义缓存
+  import numpy as np
+  from typing import Optional
+
+  class SemanticCache:
+      def __init__(self, embedding_model, vector_db, similarity_threshold=0.95):
+          self.embed = embedding_model
+          self.db = vector_db
+          self.threshold = similarity_threshold
+
+      def get(self, question: str) -> Optional[str]:
+          """查询缓存，返回命中结果或 None"""
+          q_embedding = self.embed(question)
+          results = self.db.search(q_embedding, limit=1)
+          if results and results[0]["score"] >= self.threshold:
+              return results[0]["answer"]  # 缓存命中
+          return None  # 缓存未命中
+
+      def set(self, question: str, answer: str):
+          """存入缓存"""
+          q_embedding = self.embed(question)
+          self.db.insert({
+              "embedding": q_embedding,
+              "question": question,
+              "answer": answer,
+              "created_at": datetime.now()
+          })
+
+  # 使用示例（包装 LLM 调用）
+  def cached_llm_call(question: str, llm, cache: SemanticCache) -> str:
+      # 1. 先查缓存
+      cached = cache.get(question)
+      if cached:
+          return cached  # 命中！零 LLM 调用成本
+
+      # 2. 缓存未命中，调用 LLM
+      answer = llm.chat([{"role": "user", "content": question}])
+
+      # 3. 存入缓存
+      cache.set(question, answer)
+      return answer
+
+cache_design_decisions:
+  - decision: "相似度阈值设置"
+    recommendation: "0.92-0.97 之间"
+    too_low: "低于 0.90：不同问题被错误命中，返回错误答案"
+    too_high: "高于 0.99：近似等于精确匹配，命中率极低，缓存失效"
+
+  - decision: "缓存 TTL（过期时间）"
+    recommendation: "根据知识更新频率设置"
+    example: "技术概念缓存 7 天；实时数据（天气/股价）不缓存"
+
+  - decision: "哪些内容不应该缓存"
+    list:
+      - "包含用户个人信息的问题（缓存可能泄露隐私）"
+      - "实时性要求高的问题（最新新闻、当前价格）"
+      - "包含随机性的问题（'给我一个随机故事'）"
+
+best_practices:
+  - "记录缓存命中率：命中率低于 20% 说明缓存策略需要调整"
+  - "缓存要按用户隔离（如果答案包含用户数据）：user_id 作为 namespace"
+  - "定期清理过期和低频缓存：避免缓存膨胀"
+  - "缓存预热：把高频常见问题提前写入缓存，提升冷启动命中率"
+
+anti_patterns:
+  - pattern: "阈值设置过低（< 0.90），不相关的问题被错误命中"
+    consequence: "用户收到错误答案，系统可靠性崩溃"
+  - pattern: "实时数据也走语义缓存（如'今天上海天气'）"
+    consequence: "返回过期的天气信息"
+  - pattern: "包含敏感用户数据的回答被缓存并共享给其他用户"
+    consequence: "隐私泄露"
+
+relationships:
+  related_to:
+    - id: "KN-C-000069"
+      note: "Semantic Cache 命中时直接节省 Token Budget 消耗"
+    - id: "KN-C-000030"
+      note: "Semantic Cache 的核心是 Embedding 向量的相似度计算"
+    - id: "KN-C-000071"
+      note: "Semantic Cache 和 Model Routing 是互补的成本优化手段"
+
+interview_points:
+  - "Semantic Cache 和传统 HTTP 缓存有什么本质区别？"
+  - "语义相似度阈值应该怎么设置？太高和太低各有什么问题？"
+  - "哪些类型的 LLM 调用不适合做语义缓存？"
+  - "生产环境中语义缓存命中率一般能达到多少？如何提升？（L3+ 考察）"
+
+exam_points:
+  - "Semantic Cache = 基于向量相似度的 LLM 响应缓存，意思相近的问题共享缓存"
+  - "相似度阈值：0.92-0.97，太低错误命中，太高命中率极低"
+  - "不适合缓存：实时数据 / 含个人信息 / 随机性答案"
+  - "实际生产命中率 30-60%，大幅降低 LLM 调用次数"
+
+one_liner: "Semantic Cache = '这问题之前回答过'——用向量相似度找到语义相同的历史问题，直接复用答案，零 LLM 调用成本。"
+difficulty: intermediate

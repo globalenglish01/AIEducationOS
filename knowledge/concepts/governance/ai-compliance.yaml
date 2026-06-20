@@ -1,0 +1,132 @@
+id: "KN-C-000079"
+type: Concept
+name: "AI Compliance（AI 合规性）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L3-L4"
+tags:
+  - governance
+  - compliance
+  - gdpr
+  - regulation
+
+aliases:
+  - "AI 合规"
+  - "数据合规"
+  - "Regulatory Compliance"
+
+summary: "AI 系统必须遵守的法律法规要求，核心包括 GDPR 数据主权、用户知情同意、审计日志、数据删除权，是企业 AI 上线的法律红线。"
+
+definition: |
+  AI Compliance 是 AI 系统在法律合规层面的要求集合：
+  - 数据主权（Data Sovereignty）：用户数据存储和处理必须符合所在地区法规
+  - 知情同意（Informed Consent）：用户必须明确同意 AI 如何处理其数据
+  - 数据最小化（Data Minimization）：只收集完成任务所必需的数据
+  - 被遗忘权（Right to Erasure）：用户可要求删除其所有数据
+  - 审计日志（Audit Trail）：AI 决策全程有记录，监管机构可查
+  - 透明度（Transparency）：用户有权知道 AI 基于什么做出了影响他们的决策
+
+why: |
+  AI 合规不只是法律问题，也是商业问题：
+  - GDPR 违规：最高处以全球年营业额 4% 的罚款（Meta 被罚 12 亿欧元）
+  - 数据泄露：一次数据泄露事件平均损失 435 万美元（Ponemon 2023）
+  - 监管审查：AI 产品在欧盟、中国等市场上线需要事先合规评估
+  AI 工程师必须在设计阶段就考虑合规，而非事后补救（"Privacy by Design"）。
+
+mental_model: |
+  AI 合规 = 餐厅食品安全证
+  - 餐厅要营业，必须有食品安全证（合规许可）
+  - 检查项目：食材来源记录（数据来源）、冷链温度日志（审计日志）、
+    食品标签成分说明（透明度）、过期食材处理记录（数据删除）
+  - 检查员随时可以来查（监管审计）
+  - 通不过检查：停业整顿（业务中断）
+
+  AI 系统同理：不是"功能好用就行"，监管机构随时可能来审查合规记录。
+
+key_regulations:
+  - regulation: "GDPR（欧盟通用数据保护条例）"
+    scope: "处理欧盟居民数据的所有组织，无论在哪个国家"
+    key_requirements:
+      - "数据主体权利：访问权、更正权、删除权、携带权、反对权"
+      - "数据最小化：只收集必要数据"
+      - "目的限制：数据只用于收集时声明的目的"
+      - "数据保护官（DPO）：大规模处理个人数据的组织必须设立"
+      - "72小时数据泄露通报：发现泄露后 72 小时内通知监管机构"
+    ai_specific_requirements:
+      - "自动化决策说明：对用户产生重大影响的 AI 决策，用户有权获得解释"
+      - "知情同意：使用用户数据训练 AI 需要明确同意"
+
+  - regulation: "中国数据安全法 + 个人信息保护法"
+    scope: "处理中国境内个人信息的组织"
+    key_requirements:
+      - "数据本地化：重要数据必须在境内存储和处理"
+      - "跨境数据传输审批：向境外提供重要数据需要安全评估"
+      - "个人信息处理规则公示"
+      - "用户撤回同意权"
+
+  - regulation: "HIPAA（美国医疗信息保护）"
+    scope: "处理美国医疗信息的组织"
+    key_requirements:
+      - "PHI（受保护健康信息）加密存储和传输"
+      - "访问控制：最小必要访问原则"
+      - "审计日志：所有 PHI 访问记录保留 6 年"
+
+engineering_checklist:
+  data_sovereignty:
+    - "✅ 确定数据存储区域（AWS eu-west-1 / 阿里云华东...）"
+    - "✅ 跨区域数据传输有审批或技术控制"
+    - "✅ 不同区域的数据用不同的数据库实例（物理隔离）"
+
+  informed_consent:
+    - "✅ 用户注册时有明确的数据处理说明"
+    - "✅ 使用 AI 处理用户数据前有单独的同意记录"
+    - "✅ 同意记录存储在数据库中，包含：用户ID、同意时间、同意版本"
+
+  right_to_erasure:
+    - "✅ 有删除用户数据的完整流程"
+    - "✅ 删除范围包括：对话历史、向量库中的 Embedding、Long-term Memory、日志"
+    - "✅ 删除操作有记录（谁在什么时间执行了删除）"
+    - "✅ 备份数据中的个人信息也能被删除或匿名化"
+
+  audit_trail:
+    - "✅ 所有 AI 决策有日志：输入 / 输出 / 使用的模型版本 / 时间戳"
+    - "✅ 高风险决策（贷款审批、招聘筛选）有额外的决策依据记录"
+    - "✅ 审计日志不可篡改（只读存储）"
+    - "✅ 日志保留期符合监管要求（通常 5-7 年）"
+
+  transparency:
+    - "✅ 向用户展示 AI 决策的主要影响因素"
+    - "✅ 隐私政策明确说明 AI 如何使用用户数据"
+    - "✅ 提供反对自动化决策的机制"
+
+anti_patterns:
+  - pattern: "把欧洲用户数据存在美国服务器（无数据主权控制）"
+    consequence: "违反 GDPR 数据转移规定，可被处以高额罚款"
+  - pattern: "删除用户账号只删表层数据，不删向量库中的 Embedding"
+    consequence: "未完整执行'被遗忘权'，存在合规风险"
+  - pattern: "审计日志只保留 30 天（不够合规要求）"
+    consequence: "监管审查时无法提供历史记录，构成违规"
+
+relationships:
+  part_of:
+    - id: "KN-C-000078"
+      note: "AI Compliance 是 FCARS 框架中 Compliance（C）维度的详细展开"
+  related_to:
+    - id: "KN-C-000068"
+      note: "Memory Isolation 是数据隔离合规的技术实现"
+
+interview_points:
+  - "GDPR 对 AI 系统有哪些特殊要求？（自动化决策、被遗忘权等）"
+  - "如果用户行使'被遗忘权'，AI 系统需要删除哪些数据？（考察全面性）"
+  - "什么是数据主权？为什么 AI 系统的数据存储位置很重要？"
+  - "如何设计一个'Privacy by Design'的 AI 系统？（L4 考察设计理念）"
+
+exam_points:
+  - "GDPR 核心权利：访问权 / 更正权 / 删除权（被遗忘权）/ 携带权"
+  - "删除权执行范围：对话历史 + 向量 Embedding + Long-term Memory + 日志中的 PII"
+  - "审计日志必须：不可篡改 + 保留期符合要求（通常 5-7 年）"
+  - "72小时通报义务：数据泄露后 72 小时内通知监管机构"
+
+one_liner: "AI 合规 = 在系统设计阶段就把法律红线（GDPR/数据主权/被遗忘权/审计）做进去，而非上线后被罚款再补救。"
+difficulty: expert

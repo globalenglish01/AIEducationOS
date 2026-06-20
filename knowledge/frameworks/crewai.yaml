@@ -1,0 +1,140 @@
+id: "KN-F-000004"
+type: Framework
+name: "CrewAI"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2"
+tags:
+  - framework
+  - agent
+  - multi-agent
+  - role-playing
+
+aliases:
+  - "CrewAI 框架"
+  - "crewai"
+
+summary: "以'船员（Crew）'为核心概念的多 Agent 框架，通过角色（Role）、目标（Goal）、任务（Task）三要素定义 Agent，适合角色扮演式多 Agent 协作。"
+
+definition: |
+  CrewAI 是专注于多 Agent 协作的 Python 框架，核心抽象：
+  - Agent：有 role（角色）、goal（目标）、backstory（背景故事）三要素
+  - Task：有 description（任务描述）、expected_output（期望输出）
+  - Crew：一组 Agent + 一组 Task 的组合，定义执行流程
+  - Process：sequential（顺序）或 hierarchical（主从）执行策略
+
+  CrewAI 的独特之处：
+  Agent 的行为通过自然语言定义的角色和目标来驱动，
+  而非代码逻辑，非常接近"给真实员工写工作说明"。
+
+why: |
+  对于不熟悉图结构（LangGraph）或对话模型（AutoGen）的团队，
+  CrewAI 提供了一种更直觉的多 Agent 定义方式：
+  "你是市场研究分析师，你的目标是收集竞品信息，你有5年市场研究经验"
+  这种角色扮演式定义让 Agent 的行为更可预测、更易理解。
+
+mental_model: |
+  CrewAI = 组建一支专业团队
+  - 你是 CEO，需要完成一个项目
+  - 招聘过程：给每个职位写 JD（role + goal + backstory）
+  - 任务分配：给每个职位分配具体工作（Task）
+  - 团队作战：团队按顺序或主从方式完成所有任务（Crew）
+  不需要写代码逻辑，只需要"写 JD"和"分配任务"。
+
+core_usage: |
+  from crewai import Agent, Task, Crew, Process
+
+  # 1. 定义 Agent（写 JD）
+  researcher = Agent(
+      role="市场研究分析师",
+      goal="收集关于AI编程工具市场的最新信息和竞品分析",
+      backstory="""你是一位经验丰富的市场研究专家，
+      擅长通过网络搜索和数据分析，
+      提供准确、有深度的市场洞察。""",
+      verbose=True,
+      tools=[search_web_tool, read_url_tool],
+      llm=ChatOpenAI(model="gpt-4o")
+  )
+
+  writer = Agent(
+      role="技术报告撰写专家",
+      goal="将市场研究数据转化为清晰、专业的分析报告",
+      backstory="""你是一位技术写作专家，
+      能将复杂的技术和市场信息转化为易懂的报告，
+      擅长结构化写作和数据可视化描述。""",
+      verbose=True
+  )
+
+  # 2. 定义 Task（分配任务）
+  research_task = Task(
+      description="收集 2025 年 AI 编程工具（Copilot/Cursor/Tabnine）的市场数据，包括市场份额、用户评价、定价策略",
+      expected_output="包含竞品分析的结构化数据报告，JSON 格式",
+      agent=researcher
+  )
+
+  report_task = Task(
+      description="基于市场研究数据，撰写一份 AI 编程工具市场分析报告",
+      expected_output="2000字专业报告，包含执行摘要、竞品对比、市场趋势、投资建议",
+      agent=writer,
+      context=[research_task]  # 依赖 research_task 的输出
+  )
+
+  # 3. 组建团队并执行
+  crew = Crew(
+      agents=[researcher, writer],
+      tasks=[research_task, report_task],
+      process=Process.sequential,  # 顺序执行
+      verbose=True
+  )
+
+  result = crew.kickoff()
+
+hierarchical_process: |
+  # 主从执行模式（有一个 Manager Agent 负责协调）
+  crew = Crew(
+      agents=[researcher, analyst, writer],
+      tasks=[research_task, analysis_task, report_task],
+      process=Process.hierarchical,
+      manager_llm=ChatOpenAI(model="gpt-4o"),  # Manager 用强模型
+      verbose=True
+  )
+
+crewai_vs_others:
+  vs_langgraph: "LangGraph 精确控制流程（图结构），CrewAI 角色驱动（自然语言定义），CrewAI 更易上手，LangGraph 更可控"
+  vs_autogen: "AutoGen 对话驱动（Agent 互相聊），CrewAI 任务驱动（按 Task 列表执行），CrewAI 流程更明确"
+  sweet_spot: "原型验证、内容生成、研究报告类任务；不适合需要精确状态管理的生产系统"
+
+best_practices:
+  - "backstory 写得越具体，Agent 行为越可预测：加入具体技能、经验年限、工作方式描述"
+  - "Task 的 expected_output 要明确格式：'JSON 格式'比'数据报告'更有效"
+  - "context=[依赖任务] 明确任务依赖：让后续任务能访问前置任务结果"
+  - "生产场景结合 LangGraph：CrewAI 做原型，LangGraph 做生产重写"
+
+anti_patterns:
+  - pattern: "把 CrewAI 用于需要精确状态控制的生产场景"
+    consequence: "CrewAI 的执行流程灵活但不精确，难以做到生产级可靠性和可观测性"
+  - pattern: "Agent 的 backstory 写得过于简短（一句话）"
+    consequence: "Agent 行为发散，与预期角色不符"
+
+relationships:
+  alternative_to:
+    - id: "KN-F-000002"
+      note: "CrewAI（角色驱动）是 LangGraph（图状态机）的更易用但精度较低的替代"
+    - id: "KN-F-000003"
+      note: "CrewAI（任务驱动）和 AutoGen（对话驱动）是两种不同的多 Agent 协作风格"
+
+interview_points:
+  - "CrewAI 的 Agent 三要素是什么？它们如何影响 Agent 的行为？"
+  - "CrewAI 的 sequential 和 hierarchical Process 有什么区别？"
+  - "与 LangGraph 相比，CrewAI 的优势和局限分别是什么？"
+  - "什么场景选 CrewAI，什么场景选 LangGraph？（L2 核心判断题）"
+
+exam_points:
+  - "CrewAI 三要素：Agent（role/goal/backstory）+ Task（description/expected_output）+ Crew（Process）"
+  - "Process：sequential（顺序）或 hierarchical（主从，有 Manager Agent）"
+  - "适合：原型验证、内容生成；不适合：精确状态控制的生产系统"
+  - "context=[task] 表示任务依赖，后续任务能读前置任务输出"
+
+one_liner: "CrewAI = 组建专业团队：给每个 Agent 写 JD（role+goal+backstory），分配 Task，团队 kick off，适合角色扮演式多 Agent 协作原型。"
+difficulty: intermediate

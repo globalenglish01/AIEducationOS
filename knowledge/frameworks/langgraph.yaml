@@ -1,0 +1,172 @@
+id: "KN-F-000002"
+type: Framework
+name: "LangGraph"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - framework
+  - agent
+  - state-machine
+  - workflow
+
+aliases:
+  - "LangGraph 框架"
+  - "langgraph"
+
+summary: "基于图状态机的 Agent 编排框架，支持循环、条件分支、多 Agent、Checkpoint，是构建生产级 Agent 系统的首选框架。"
+
+definition: |
+  LangGraph 是 LangChain 公司开发的 Agent 编排框架，
+  以有向图（Directed Graph）作为执行引擎：
+  - 节点（Node）：每个节点是一个函数或 Agent
+  - 边（Edge）：定义节点间的执行顺序
+  - 条件边（Conditional Edge）：根据状态决定下一个节点
+  - 状态（State）：贯穿整个图的共享数据结构（TypedDict）
+  - Checkpoint：每步自动持久化状态，支持暂停/恢复
+
+  与 LangChain 的线性 Chain 不同，LangGraph 支持循环：
+  Agent 可以回到之前的节点重新执行，这是 ReAct 循环的基础。
+
+why: |
+  生产 Agent 的三个关键需求，LangChain 原生无法满足：
+  1. 循环：Agent 需要"思考→行动→观察→再思考"，这是一个有状态的循环
+  2. 人工介入：复杂任务需要在关键决策点暂停等待人工确认
+  3. 容错恢复：长任务中途失败不能从头开始，需要从断点续跑
+
+  LangGraph 通过图状态机和 Checkpoint 解决了这三个问题。
+
+mental_model: |
+  LangGraph = 有状态的乐高积木
+  - 每个积木（节点）是一个功能模块（搜索、分析、写作）
+  - 积木之间的连接（边）定义了执行顺序
+  - 状态盒子（State）在所有积木之间共享，记录当前进度
+  - 快照功能（Checkpoint）随时保存当前拼接进度
+  可以随时暂停、回溯、继续，而不是一条直线从头跑到尾。
+
+core_concepts: |
+  # 1. 定义图状态
+  from typing import TypedDict, Annotated
+  from langgraph.graph import StateGraph, START, END
+  import operator
+
+  class AgentState(TypedDict):
+      messages: Annotated[list, operator.add]  # 消息历史，每次追加
+      search_results: str
+      final_answer: str
+
+  # 2. 定义节点函数
+  def search_node(state: AgentState) -> AgentState:
+      """搜索节点"""
+      results = search_web(state["messages"][-1].content)
+      return {"search_results": results}
+
+  def answer_node(state: AgentState) -> AgentState:
+      """生成答案节点"""
+      answer = llm.chat(state["messages"] + [
+          {"role": "system", "content": f"参考资料：{state['search_results']}"}
+      ])
+      return {"final_answer": answer, "messages": [answer]}
+
+  def should_search(state: AgentState) -> str:
+      """条件边：决定是否需要搜索"""
+      last_msg = state["messages"][-1].content
+      if "需要查" in last_msg or "最新" in last_msg:
+          return "search"
+      return "answer"
+
+  # 3. 构建图
+  graph = StateGraph(AgentState)
+  graph.add_node("search", search_node)
+  graph.add_node("answer", answer_node)
+
+  graph.add_conditional_edges(START, should_search, {
+      "search": "search",
+      "answer": "answer"
+  })
+  graph.add_edge("search", "answer")
+  graph.add_edge("answer", END)
+
+  # 4. 编译并执行（带 Checkpoint）
+  from langgraph.checkpoint.memory import MemorySaver
+  checkpointer = MemorySaver()  # 生产用 PostgresSaver
+  app = graph.compile(checkpointer=checkpointer)
+
+  config = {"configurable": {"thread_id": "session-001"}}
+  result = app.invoke({"messages": [user_message]}, config=config)
+
+human_in_the_loop: |
+  # 在关键节点暂停等待人工确认
+  graph.add_node("review_node", review_func)
+  app = graph.compile(
+      checkpointer=checkpointer,
+      interrupt_before=["review_node"]  # 执行前暂停
+  )
+
+  # 执行到 interrupt 点自动暂停
+  result = app.invoke(input, config)  # 暂停在 review_node 前
+
+  # 人工审核后继续（传 None 表示用当前状态继续）
+  app.invoke(None, config)
+
+key_features:
+  - feature: "Checkpoint（检查点）"
+    what: "每个节点执行后自动持久化 State 到存储"
+    why: "长任务失败时从断点恢复；支持暂停/继续；支持时间旅行调试"
+
+  - feature: "Human-in-the-Loop"
+    what: "interrupt_before/interrupt_after 在节点前后暂停等人工确认"
+    why: "高风险操作（发邮件、提交代码）需要人工确认"
+
+  - feature: "Subgraph"
+    what: "图可以嵌套：节点本身可以是另一个 LangGraph 图"
+    why: "实现多层次 Agent 系统（Supervisor 图包含 Worker 子图）"
+
+  - feature: "Streaming"
+    what: "app.stream() 逐步返回每个节点的执行结果"
+    why: "用户端实时看到 Agent 的推理过程，而不是等待最终结果"
+
+langgraph_vs_langchain:
+  use_langchain_when: "RAG 查询、简单 LLM 调用、文档处理 Pipeline（线性无状态）"
+  use_langgraph_when: "需要循环的 Agent、Human-in-the-Loop、长任务需要断点续跑、Multi-Agent"
+  relationship: "LangGraph 内部使用 LangChain 的 LLM、Tool、Message 组件"
+
+best_practices:
+  - "State 使用 TypedDict + Annotated：保证类型安全，明确消息累积策略"
+  - "生产环境用 PostgresSaver 替代 MemorySaver：内存存储重启后数据丢失"
+  - "thread_id 对应用户会话：同一 thread_id 共享 Checkpoint 历史"
+  - "用 LangGraph Studio 可视化调试图结构和状态流转"
+
+anti_patterns:
+  - pattern: "直接在节点里修改全局变量（而非返回新的 State 片段）"
+    consequence: "并行节点时产生竞争条件，状态不可预测"
+  - pattern: "不设 Checkpoint 就部署长任务 Agent"
+    consequence: "任意步骤失败都要从头重跑，对用户体验和成本都是灾难"
+
+relationships:
+  depends_on:
+    - id: "KN-F-000001"
+      note: "LangGraph 构建在 LangChain 之上，使用其 LLM/Tool/Message 抽象"
+  implements:
+    - id: "KN-P-000005"
+      note: "create_react_agent 封装了 ReAct Pattern"
+    - id: "KN-P-000006"
+      note: "create_supervisor 实现了 Supervisor-Worker Pattern"
+    - id: "KN-P-000007"
+      note: "add_edge 实现了 Pipeline Pattern"
+
+interview_points:
+  - "LangGraph 中 Node、Edge、State 各是什么？它们如何协作？"
+  - "LangGraph 的 Checkpoint 解决了什么问题？生产中用什么存储？"
+  - "Human-in-the-Loop 如何实现？interrupt_before 和 interrupt_after 的区别？"
+  - "thread_id 在多用户系统中的作用是什么？（L2+ 考察）"
+
+exam_points:
+  - "LangGraph = 图状态机：Node（函数）+ Edge（顺序）+ State（共享数据）"
+  - "Checkpoint：每步持久化，长任务断点续跑，生产用 PostgresSaver"
+  - "Human-in-the-Loop：interrupt_before=['node_name'] 在节点前暂停"
+  - "LangGraph vs LangChain：有状态循环用 LangGraph，线性无状态用 LangChain"
+
+one_liner: "LangGraph = 有状态的乐高积木：用图状态机编排 Agent 循环，Checkpoint 支持断点续跑，Human-in-the-Loop 支持人工介入。"
+difficulty: advanced

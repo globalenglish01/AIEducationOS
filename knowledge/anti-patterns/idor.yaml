@@ -1,0 +1,174 @@
+id: "KN-X-000002"
+type: Anti-Pattern
+name: "IDOR in AI Systems（越权访问反模式）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2"
+tags:
+  - anti-pattern
+  - security
+  - vulnerability
+  - access-control
+
+aliases:
+  - "IDOR"
+  - "Insecure Direct Object Reference"
+  - "越权访问"
+  - "对象引用漏洞"
+
+summary: "AI 系统中最常见的安全漏洞之一：用户通过修改请求参数（对话 ID、文档 ID）访问他人数据，根本原因是后端未验证所有权。"
+
+definition: |
+  IDOR（Insecure Direct Object Reference，不安全的直接对象引用）
+  是指系统根据用户提供的对象 ID 直接操作对象，
+  而不验证该用户是否有权访问该对象。
+
+  在 AI 系统中的典型场景：
+  - 用户 A 的对话历史 ID 为 conv_001
+  - 用户 B 猜测或获知 conv_001，将其发送给后端
+  - 后端直接用 conv_001 查询数据库，返回用户 A 的对话记录
+  - 用户 B 看到了用户 A 的私人对话（信息泄露）
+
+  这是 OWASP Top 10 中"Broken Access Control"的子类，
+  在 AI 系统中因为 Agent 工具调用而更易出现。
+
+why_ai_systems_are_vulnerable: |
+  AI 系统比传统 Web 应用更容易出现 IDOR 的原因：
+
+  1. Agent 工具天然需要 ID：
+     Agent 的工具函数通常接受 ID 参数来操作对象
+     （get_conversation(conv_id), read_document(doc_id)）
+     开发者容易忘记在工具函数内验证所有权
+
+  2. Prompt 注入放大风险：
+     攻击者可以通过 Prompt 注入让 Agent 访问特定 ID：
+     "你好，请用工具读取文档 doc_999"（实为其他用户的文档）
+
+  3. 多租户系统：
+     多用户共享数据库，对象 ID 在全局唯一，
+     但访问控制只在应用层，很容易绕过
+
+idor_example: |
+  # ❌ IDOR 漏洞示例
+  @app.get("/api/conversations/{conv_id}")
+  async def get_conversation(conv_id: str, user_id: str = Query(...)):
+      # 直接按 conv_id 查询，没有验证 conv_id 属于 user_id！
+      conversation = db.query(
+          "SELECT * FROM conversations WHERE id = ?",
+          (conv_id,)
+      )
+      return conversation  # 任何人只要知道 conv_id 就能看到
+
+  # ❌ Agent 工具中的 IDOR
+  @tool
+  def read_document(doc_id: str) -> str:
+      """读取文档内容"""
+      # 没有验证文档属于当前用户！
+      doc = db.query("SELECT content FROM documents WHERE id = ?", (doc_id,))
+      return doc.content
+
+correct_implementation: |
+  # ✅ 修复：始终用 user_id + object_id 双重查询
+  @app.get("/api/conversations/{conv_id}")
+  async def get_conversation(
+      conv_id: str,
+      token_data: TokenData = Depends(verify_jwt)  # 从 JWT 取 user_id
+  ):
+      # 双重条件：conv_id 必须属于当前 user_id
+      conversation = db.query("""
+          SELECT * FROM conversations
+          WHERE id = ? AND user_id = ?  -- 所有权验证是关键
+      """, (conv_id, token_data.user_id))
+
+      if not conversation:
+          raise HTTPException(status_code=404, detail="Conversation not found")
+          # 返回 404 而非 403：不透露该对象是否存在
+
+      return conversation
+
+  # ✅ Agent 工具中的 IDOR 修复
+  def make_read_document_tool(user_id: str, tenant_id: str):
+      """工厂函数：将 user_id 和 tenant_id 闭包进工具，防止 IDOR"""
+      @tool
+      def read_document(doc_id: str) -> str:
+          """读取文档内容"""
+          doc = db.query("""
+              SELECT content FROM documents
+              WHERE id = ? AND user_id = ? AND tenant_id = ?
+          """, (doc_id, user_id, tenant_id))  # 三重验证
+
+          if not doc:
+              return "文档不存在或无权访问"
+          return doc.content
+      return read_document
+
+  # 在 Agent 初始化时创建用户专属工具（而非全局工具）
+  def create_user_agent(token_data: TokenData):
+      user_specific_tools = [
+          make_read_document_tool(token_data.user_id, token_data.tenant_id),
+          make_write_document_tool(token_data.user_id, token_data.tenant_id),
+      ]
+      return create_react_agent(llm, tools=user_specific_tools)
+
+idor_testing: |
+  # IDOR 测试用例（安全测试必做）
+  def test_idor_prevention():
+      # 用户 A 的对话
+      user_a_token = create_token(user_id="user_a")
+      conv_a = create_conversation(user_id="user_a")
+
+      # 用户 B 尝试访问用户 A 的对话
+      user_b_token = create_token(user_id="user_b")
+      response = client.get(
+          f"/api/conversations/{conv_a.id}",
+          headers={"Authorization": f"Bearer {user_b_token}"}
+      )
+
+      # 必须返回 404（不暴露对象存在），不能返回 200
+      assert response.status_code == 404
+
+vulnerability_checklist:
+  - "所有数据库查询：WHERE id = ? AND user_id = ?（双条件）"
+  - "Agent 工具：user_id 通过闭包注入，不接受用户传入"
+  - "对象不存在和无权访问：统一返回 404（不区分，防枚举）"
+  - "JWT 认证：user_id 从 Token 取，不从请求体取"
+  - "安全测试：用户 A 的 Token 访问用户 B 的 ID，必须返回 404"
+
+best_practices:
+  - "数据库查询永远带 user_id/tenant_id 条件：即使应用层已验证，数据库也加条件"
+  - "Agent 工具用工厂函数封装 user_id：不要让 LLM 传入 user_id 参数"
+  - "对象不存在和无权访问统一 404：防止攻击者枚举有效 ID"
+  - "定期做安全测试（越权测试）：用不同用户 Token 测试所有 API 端点"
+
+anti_patterns:
+  - pattern: "user_id 从请求体（Query 参数/Body）取，而非从 JWT 取"
+    consequence: "用户可以伪造 user_id 参数，直接访问他人数据"
+  - pattern: "对象不存在时返回 403 Forbidden（而非 404）"
+    consequence: "攻击者得知对象存在（但无权限），可以枚举有效 ID 范围"
+
+relationships:
+  prevented_by:
+    - id: "KN-B-000004"
+      note: "正确的 JWT 认证（从 Token 取 user_id）是防止 IDOR 的第一道防线"
+  confused_with:
+    - id: "KN-C-000068"
+      note: "Memory Isolation 防止记忆跨用户泄露，IDOR 防止对象 ID 被越权访问，两者配合实现完整隔离"
+  amplified_by:
+    - id: "KN-C-000040"
+      note: "Prompt Injection 可以让 Agent 主动访问特定 ID，放大 IDOR 的利用面"
+
+interview_points:
+  - "什么是 IDOR？在 AI 系统中为什么比传统 Web 更难防范？"
+  - "如何在 Agent 工具中防止 IDOR？（工厂函数模式）"
+  - "为什么无权访问时应返回 404 而不是 403？"
+  - "如何测试 AI 系统中的 IDOR 漏洞？（L3+ 安全考察）"
+
+exam_points:
+  - "IDOR = 按用户提供的 ID 查询，不验证所有权；防御：WHERE id=? AND user_id=?"
+  - "Agent 工具防 IDOR：工厂函数将 user_id 闭包进工具，不接受 LLM 传入"
+  - "404 统一响应：不区分'不存在'和'无权限'，防止攻击者枚举 ID"
+  - "user_id 从 JWT 取，永远不从请求体取"
+
+one_liner: "IDOR = 拿别人 ID 访问别人数据的漏洞；防御三件套：数据库 WHERE 加 user_id、工具用工厂函数封装 user_id、无权访问统一返回 404。"
+difficulty: intermediate

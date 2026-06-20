@@ -1,0 +1,167 @@
+id: "KN-B-000004"
+type: Practice
+name: "JWT Auth in AI Systems（AI 系统的 JWT 认证）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2"
+tags:
+  - practice
+  - security
+  - auth
+  - api
+
+aliases:
+  - "JWT 认证"
+  - "AI API 认证"
+  - "Token Auth"
+
+summary: "AI 系统 API 的标准认证实践：使用 JWT（JSON Web Token）携带用户身份和权限信息，从 Token 中提取 tenant_id/user_id 用于隔离和权限控制。"
+
+definition: |
+  JWT（JSON Web Token）是一种无状态的认证方案：
+  - Header：算法类型（RS256/HS256）
+  - Payload：用户身份信息（user_id, tenant_id, roles, exp）
+  - Signature：防篡改的数字签名
+
+  在 AI 系统中，JWT 的特殊重要性在于：
+  Payload 中的 tenant_id/user_id 是实现 Agent 隔离、
+  Memory 隔离、成本归因的关键标识符。
+
+why: |
+  AI 系统不做认证或认证做错的三个后果：
+  1. IDOR（越权访问）：用户 A 能查看用户 B 的对话历史
+  2. 成本滥用：未认证用户消耗 API 配额，费用无法归因
+  3. Prompt 注入升级：攻击者以管理员权限执行恶意指令
+
+  JWT 提供了轻量、无状态、可扩展的认证方案，
+  天然适合 AI 系统的分布式微服务架构。
+
+mental_model: |
+  JWT = 带信息的门禁卡
+  - 传统 Session：门禁系统（服务器）记录每张卡的信息，每次刷卡查数据库
+  - JWT：卡本身写着"姓名:张三，部门:研发，权限:AI服务，过期:2026-12-31"
+    门禁（服务器）只需验证卡没被伪造（签名验证），直接读卡上信息
+  - 好处：不需要查数据库（无状态），水平扩展不需要共享会话
+
+ai_specific_claims: |
+  # AI 系统 JWT Payload 示例
+  {
+    "sub": "user-uuid-123",          # 用户 ID（标准字段）
+    "tenant_id": "company-abc",      # 租户 ID（AI 隔离关键）
+    "roles": ["ai:user", "ai:admin"],# AI 功能权限
+    "ai_quota": {                    # AI 资源配额（直接写入 Token）
+      "daily_tokens": 100000,
+      "monthly_budget": 50.0
+    },
+    "allowed_models": ["gpt-4o-mini"], # 可用模型限制
+    "exp": 1750000000,               # 过期时间
+    "iat": 1749000000                # 签发时间
+  }
+
+fastapi_implementation: |
+  from fastapi import FastAPI, Depends, HTTPException, Security
+  from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+  import jwt
+  from pydantic import BaseModel
+
+  app = FastAPI()
+  security = HTTPBearer()
+  JWT_SECRET = "your-rsa-public-key-or-secret"  # 生产用 RSA 公钥
+
+  class TokenData(BaseModel):
+      user_id: str
+      tenant_id: str
+      roles: list[str]
+      ai_quota: dict = {}
+
+  def verify_jwt(credentials: HTTPAuthorizationCredentials = Security(security)) -> TokenData:
+      """JWT 验证依赖注入"""
+      try:
+          payload = jwt.decode(
+              credentials.credentials,
+              JWT_SECRET,
+              algorithms=["HS256"],  # 生产用 RS256
+              options={"require": ["exp", "sub", "tenant_id"]}
+          )
+          return TokenData(
+              user_id=payload["sub"],
+              tenant_id=payload["tenant_id"],
+              roles=payload.get("roles", []),
+              ai_quota=payload.get("ai_quota", {})
+          )
+      except jwt.ExpiredSignatureError:
+          raise HTTPException(status_code=401, detail="Token expired")
+      except jwt.InvalidTokenError as e:
+          raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+  @app.post("/api/v1/chat")
+  async def chat_endpoint(
+      request: ChatRequest,
+      token_data: TokenData = Depends(verify_jwt)  # 依赖注入验证
+  ):
+      # tenant_id 用于隔离：每个租户只能访问自己的数据
+      context = await load_user_context(
+          user_id=token_data.user_id,
+          tenant_id=token_data.tenant_id  # 隔离关键
+      )
+
+      # 配额检查：从 JWT 中取出
+      if token_data.ai_quota.get("daily_tokens", 0) < estimate_tokens(request):
+          raise HTTPException(status_code=429, detail="Daily token quota exceeded")
+
+      return await run_agent(request.message, context, token_data.tenant_id)
+
+tenant_isolation_via_jwt: |
+  # JWT 中的 tenant_id 如何实现数据隔离
+  def load_agent_memory(user_id: str, tenant_id: str) -> dict:
+      """只加载本租户的 Memory，SQL 层面隔离"""
+      return db.query("""
+          SELECT * FROM agent_memories
+          WHERE user_id = ? AND tenant_id = ?  # 两个条件都必须满足
+          ORDER BY created_at DESC LIMIT 20
+      """, (user_id, tenant_id))
+
+  # 在向量数据库中实现租户隔离
+  def search_knowledge_base(query: str, tenant_id: str) -> list:
+      return vectorstore.similarity_search(
+          query,
+          filter={"tenant_id": tenant_id}  # 只搜索本租户文档
+      )
+
+best_practices:
+  - "生产环境用 RS256（非对称）：私钥签名，公钥验证，公钥可分发给所有服务"
+  - "tenant_id 必须从 JWT 取，不能从请求体取：请求体可被用户伪造"
+  - "JWT 有效期不超过 1 小时：配合 Refresh Token 机制"
+  - "AI 相关权限写入 JWT claims：allowed_models/daily_quota，减少数据库查询"
+
+anti_patterns:
+  - pattern: "从请求体的 user_id 字段做数据隔离（而非从 JWT 取）"
+    consequence: "用户可以构造 user_id=other_user 的请求，访问他人数据（IDOR）"
+  - pattern: "JWT 永不过期（exp 设为很遥远的未来）"
+    consequence: "Token 泄露后攻击者永久有访问权，无法撤销"
+  - pattern: "在 JWT 中存储敏感信息（密码、PII）"
+    consequence: "JWT Payload 只是 Base64 编码，不是加密，任何人都能解码"
+
+relationships:
+  enables:
+    - id: "KN-C-000074"
+      note: "JWT 中的 tenant_id 是多租户隔离架构的身份标识基础"
+  prevents:
+    - id: "KN-X-000002"
+      note: "正确的 JWT 认证（从 Token 取 tenant_id）是防止 IDOR 的关键手段"
+
+interview_points:
+  - "为什么 AI 系统的 tenant_id 必须从 JWT 取，而不能从请求体取？"
+  - "JWT 的 HS256 和 RS256 各适合什么场景？"
+  - "如何在 JWT 中携带 AI 配额信息以减少数据库查询？"
+  - "JWT 过期时间应该设多长？如何处理过期？（L2+ 考察）"
+
+exam_points:
+  - "JWT Payload：user_id + tenant_id + roles + ai_quota，无状态认证"
+  - "tenant_id 从 JWT 取，不从请求体取：防 IDOR"
+  - "生产用 RS256：私钥签名，公钥验证，公钥可分发"
+  - "JWT 不存敏感信息：Payload 是 Base64 编码，不是加密"
+
+one_liner: "AI 系统的 JWT = 带门禁信息的工牌：user_id/tenant_id/quota 写在 Token 里，无状态验证，tenant_id 必须从 Token 取以防越权访问。"
+difficulty: intermediate

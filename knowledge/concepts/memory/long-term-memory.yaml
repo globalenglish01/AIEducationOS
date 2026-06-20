@@ -1,0 +1,141 @@
+id: "KN-C-000066"
+type: Concept
+name: "Long-term Memory（长期记忆）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - memory
+  - agent
+  - persistence
+  - rag
+
+aliases:
+  - "持久化记忆"
+  - "长期记忆"
+  - "External Memory"
+
+summary: "Agent 跨会话持久化存储的信息，写入外部存储（数据库/向量库），下次对话可检索使用，不受 Context Window 限制。"
+
+definition: |
+  Long-term Memory（长期记忆）是 Agent 在会话结束后仍能保留的信息：
+  - 存储位置：外部持久化存储（关系型数据库、向量数据库、键值存储）
+  - 生命周期：跨会话持久存在，直到显式删除
+  - 容量：理论无限，受存储容量限制而非 Context Window
+  - 使用方式：通过检索（精确匹配或语义检索）按需加载到当前上下文
+
+  长期记忆让 Agent 在不同会话之间保持连贯性——
+  下次对话时 Agent 知道"上次我们谈过什么"。
+
+why: |
+  短期记忆的根本缺陷：会话结束即消失。
+  真正有用的 AI 助手需要"记住用户"：
+  - 用户偏好（"我喜欢简洁的代码风格"）
+  - 历史决策（"上周我们决定用 PostgreSQL"）
+  - 累积的专业知识（"这个项目的架构是..."）
+  这些信息不可能每次都重新告诉 Agent，必须持久化存储。
+
+mental_model: |
+  长期记忆 = 笔记本 vs 便利贴（短期记忆）
+  - 便利贴（短期记忆）：开会时记临时内容，会后丢掉
+  - 笔记本（长期记忆）：重要内容整理后写进笔记本，下次翻阅
+  - 区别：笔记本的信息需要主动"查找"，不会自动出现在视野中
+
+  另一个类比：人类大脑
+  - 工作记忆（短期）：你现在脑子里想的事情
+  - 长期记忆：你记住的技能、知识、经历——需要"回忆"才能提取
+
+memory_types:
+  - type: "Episodic Memory（情景记忆）"
+    description: "具体事件的记忆：'上次和用户X的对话中，他说他是Python开发者'"
+    storage: "结构化数据库或向量库"
+    retrieval: "按用户ID、时间范围、关键词检索"
+
+  - type: "Semantic Memory（语义记忆）"
+    description: "抽象知识和事实：'用户X偏好简洁代码风格，使用FastAPI框架'"
+    storage: "键值存储或结构化数据库"
+    retrieval: "精确匹配（用户ID+属性名）"
+
+  - type: "Procedural Memory（程序性记忆）"
+    description: "操作步骤和技能：'在这个项目中，部署流程是...'"
+    storage: "文档存储，通常以 Markdown 格式"
+    retrieval: "语义检索（RAG）"
+
+how_it_works: |
+  长期记忆的典型实现流程：
+
+  from mem0 import Memory  # 流行的 Agent 记忆库
+
+  memory = Memory()
+
+  # 存储新记忆（对话结束后触发）
+  def save_session_memory(user_id: str, conversation: list[dict]):
+      # 提取对话中的关键信息并存储
+      memory.add(conversation, user_id=user_id)
+
+  # 检索相关记忆（新对话开始时触发）
+  def load_relevant_memory(user_id: str, current_query: str) -> str:
+      results = memory.search(current_query, user_id=user_id, limit=5)
+      if not results:
+          return ""
+      memory_text = "\n".join([r["memory"] for r in results["results"]])
+      return f"【用户历史记忆】:\n{memory_text}"
+
+  # 在 Prompt 中注入长期记忆
+  def build_prompt_with_memory(user_id: str, user_input: str) -> list[dict]:
+      long_term_context = load_relevant_memory(user_id, user_input)
+      return [
+          {"role": "system", "content": f"你是用户的个人助手。\n{long_term_context}"},
+          {"role": "user", "content": user_input}
+      ]
+
+memory_isolation:
+  importance: "多用户场景下，必须严格按 user_id 隔离长期记忆"
+  risk: "未隔离会导致用户A的记忆泄露给用户B（IDOR 漏洞）"
+  implementation: |
+    # 错误：所有用户共用同一记忆空间
+    memory.search(query)  # 返回所有用户的记忆
+
+    # 正确：强制加 user_id 过滤
+    memory.search(query, user_id=current_user_id)  # 只返回当前用户的记忆
+
+best_practices:
+  - "记忆写入要做信息提炼：不要直接存储原始对话，提炼出关键事实和偏好"
+  - "记忆要有 TTL（Time-to-Live）：过期的记忆定期清理，避免陈旧信息干扰"
+  - "检索到的记忆要标注来源和时间：'（来自 2026-06-01 的对话）用户偏好...'"
+  - "长期记忆内容不能无条件信任：用户可能已经改变想法，检索时做相关性判断"
+
+anti_patterns:
+  - pattern: "把整个对话历史存入长期记忆"
+    consequence: "存储膨胀；大量噪音使检索质量下降；token 成本高"
+  - pattern: "不做用户隔离，所有记忆混存"
+    consequence: "严重的 IDOR 漏洞，用户隐私泄露"
+  - pattern: "所有长期记忆每次都全量注入 Prompt"
+    consequence: "Context Window 被记忆占满，失去长期记忆的意义"
+
+relationships:
+  contrasted_with:
+    - id: "KN-C-000065"
+      note: "短期记忆在 Context Window 内，长期记忆在外部存储"
+  retrieval_via:
+    - id: "KN-C-000033"
+      note: "语义类长期记忆通过 RAG 检索注入上下文"
+  security:
+    - id: "KN-C-000067"
+      note: "Memory Isolation 确保多用户场景下长期记忆不泄露"
+
+interview_points:
+  - "短期记忆和长期记忆的根本区别是什么？分别存在哪里？"
+  - "Agent 长期记忆的三种类型（情景/语义/程序性）分别适合存什么？"
+  - "长期记忆在多用户场景下如何做隔离？不做隔离会有什么安全风险？"
+  - "如何决定什么内容值得写入长期记忆，什么内容只用短期记忆？（L2+ 考察）"
+
+exam_points:
+  - "长期记忆 = 外部持久化存储，跨会话保留，通过检索按需加载"
+  - "三类长期记忆：情景记忆（具体事件）/ 语义记忆（抽象知识）/ 程序性记忆（操作步骤）"
+  - "必须按 user_id 隔离：否则是 IDOR 漏洞"
+  - "存储前提炼，检索时按需加载：不能全量存储，也不能全量注入"
+
+one_liner: "长期记忆 = 把重要信息写入外部存储，下次对话通过检索'想起来'，跨越 Context Window 的会话遗忘。"
+difficulty: intermediate

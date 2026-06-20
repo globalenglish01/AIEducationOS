@@ -1,0 +1,186 @@
+id: "KN-A-000001"
+type: Architecture
+name: "Agent Harness（Agent 工程脚手架）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - architecture
+  - agent
+  - engineering
+  - production
+
+aliases:
+  - "Agent 脚手架"
+  - "Agent Infrastructure"
+  - "Agent 工程框架"
+
+summary: "生产级 Agent 系统的基础设施架构，定义 Agent 运行所需的统一工程能力：配置管理、日志追踪、限速熔断、成本监控，将业务逻辑与运维关切分离。"
+
+definition: |
+  Agent Harness 是围绕 Agent 核心逻辑的工程基础设施层：
+  不改变 Agent 的功能，但为其提供生产运行所需的所有工程保障。
+
+  一个完整的 Agent Harness 包含：
+  1. 配置层：环境变量、API Key 管理、模型参数注入
+  2. 限速层：Rate Limiter，防止 API 超速导致 429 错误
+  3. 重试层：Retry with Backoff，处理瞬时失败
+  4. 日志层：结构化日志，记录每次 LLM 调用的 prompt/response/latency
+  5. 追踪层：Trace ID 贯穿整个 Agent 调用链
+  6. 成本层：Token 计数，预算监控
+  7. 超时层：全局超时，防止 Agent 永久挂起
+
+why: |
+  直接运行 Agent 业务逻辑面临的生产问题：
+  - LLM API 限速（429）时 Agent 直接崩溃
+  - 一次失败没有重试，用户看到错误
+  - 没有日志，出问题不知道 Agent 做了什么
+  - 没有成本追踪，月底 API 账单爆炸
+  - 没有超时控制，一个 Agent 卡住占用资源数小时
+
+  Agent Harness 是这些工程问题的系统性解决方案，
+  让业务开发者只需关注 Agent 逻辑，不必重复实现工程基础设施。
+
+mental_model: |
+  Agent Harness = 飞机驾驶舱的仪表板
+  - 飞行员（Agent 业务逻辑）：决定去哪里、怎么飞
+  - 仪表板（Harness）：显示油量（成本）、高度（进度）、警报（错误）
+  飞行员不需要亲自去检查每个传感器；
+  仪表板把所有工程监控数据汇总展示，
+  飞行员只需要做飞行决策。
+
+architecture: |
+  ┌─────────────────────────────────────────────────────┐
+  │                   用户请求入口                        │
+  └──────────────────────┬──────────────────────────────┘
+                         │
+  ┌──────────────────────▼──────────────────────────────┐
+  │                  Agent Harness                       │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
+  │  │ 限速层    │  │ 重试层   │  │  追踪层 (Trace)   │   │
+  │  │ Rate     │  │ Retry   │  │  trace_id 注入    │   │
+  │  │ Limiter  │  │ Backoff │  │  span 记录        │   │
+  │  └────┬─────┘  └────┬────┘  └──────────────────┘   │
+  │       │             │                                │
+  │  ┌────▼─────────────▼────────────────────────────┐  │
+  │  │              Agent 核心逻辑                     │  │
+  │  │  (ReAct 循环 / Supervisor / Pipeline)          │  │
+  │  └────────────────────────────────────────────────┘  │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────────────┐   │
+  │  │ 日志层    │  │ 成本层   │  │  超时层            │   │
+  │  │ 结构化   │  │ Token   │  │  asyncio.timeout  │   │
+  │  │ logging  │  │ counter │  │  全局上限           │   │
+  │  └──────────┘  └──────────┘  └──────────────────┘   │
+  └─────────────────────────────────────────────────────┘
+
+implementation: |
+  import asyncio
+  import logging
+  import time
+  import uuid
+  from functools import wraps
+
+  class AgentHarness:
+      def __init__(self, config: dict):
+          self.config = config
+          self.token_counter = 0
+          self.budget_limit = config.get("token_budget", 100_000)
+          self.logger = logging.getLogger("agent.harness")
+
+      async def run(self, agent_fn, input_data: dict,
+                    timeout: float = 300.0) -> dict:
+          trace_id = str(uuid.uuid4())[:8]
+          start_time = time.monotonic()
+
+          self.logger.info("agent.start", extra={
+              "trace_id": trace_id,
+              "input_keys": list(input_data.keys())
+          })
+
+          try:
+              # 全局超时控制
+              async with asyncio.timeout(timeout):
+                  result = await self._run_with_retry(
+                      agent_fn, input_data, trace_id
+                  )
+          except asyncio.TimeoutError:
+              self.logger.error("agent.timeout", extra={
+                  "trace_id": trace_id,
+                  "elapsed": time.monotonic() - start_time
+              })
+              raise
+
+          elapsed = time.monotonic() - start_time
+          self.logger.info("agent.complete", extra={
+              "trace_id": trace_id,
+              "elapsed_ms": int(elapsed * 1000),
+              "tokens_used": self.token_counter
+          })
+          return result
+
+      async def _run_with_retry(self, agent_fn, input_data, trace_id,
+                                max_retries=3):
+          for attempt in range(max_retries):
+              try:
+                  return await agent_fn(input_data)
+              except RateLimitError:
+                  wait = 2 ** attempt  # 指数退避：1s, 2s, 4s
+                  self.logger.warning("agent.rate_limited", extra={
+                      "trace_id": trace_id,
+                      "attempt": attempt,
+                      "wait_seconds": wait
+                  })
+                  await asyncio.sleep(wait)
+              except Exception as e:
+                  if attempt == max_retries - 1:
+                      raise
+                  self.logger.warning("agent.retry", extra={
+                      "trace_id": trace_id,
+                      "attempt": attempt,
+                      "error": str(e)
+                  })
+          raise RuntimeError("Max retries exceeded")
+
+harness_checklist:
+  - "trace_id：每个请求唯一标识，贯穿所有日志和追踪"
+  - "全局超时：asyncio.timeout 或 signal.alarm，防止永久挂起"
+  - "限速重试：Rate Limit 错误用指数退避重试，不直接抛给用户"
+  - "结构化日志：JSON 格式，包含 trace_id / elapsed / tokens"
+  - "Token 计数：每次 LLM 调用累计，超出预算时降级或终止"
+  - "健康检查：/health 端点，监控系统可探活"
+
+best_practices:
+  - "Harness 代码与 Agent 业务代码分离：通过装饰器或中间件注入，不侵入业务代码"
+  - "日志使用结构化格式（JSON）：便于 ELK/Datadog 等日志平台解析和查询"
+  - "在 Harness 层做 Token 计数，不依赖 Agent 自己上报"
+  - "生产环境接入 OpenTelemetry：trace_id 传递到所有下游服务"
+
+anti_patterns:
+  - pattern: "在每个 Agent 内部分散实现重试/日志/限速逻辑"
+    consequence: "重复代码，行为不一致，更新困难"
+  - pattern: "没有 Harness 直接暴露 Agent 到生产"
+    consequence: "Rate Limit 错误直接暴露给用户；无日志无法排查问题"
+
+relationships:
+  wraps:
+    - id: "KN-C-000020"
+      note: "Agent Harness 是 Agent 的工程外壳，包裹 Agent 核心逻辑"
+  related_to:
+    - id: "KN-C-000073"
+      note: "Graceful Degradation 在 Harness 层实现，Token 预算超限时触发降级"
+
+interview_points:
+  - "Agent Harness 包含哪些核心组件？各解决什么生产问题？"
+  - "为什么限速重试要用指数退避（Exponential Backoff）？"
+  - "trace_id 在 Agent 系统中起什么作用？"
+  - "如何设计一个不侵入 Agent 业务代码的 Harness？（L3+ 考察架构设计）"
+
+exam_points:
+  - "Agent Harness 六层：限速、重试、追踪、日志、成本、超时"
+  - "全局超时：asyncio.timeout(300)，防止 Agent 永久挂起"
+  - "指数退避：Rate Limit 后等 2^n 秒再重试（1s, 2s, 4s）"
+  - "trace_id：每请求唯一，贯穿所有日志，是生产排查的关键"
+
+one_liner: "Agent Harness = 飞机仪表板：限速/重试/追踪/日志/成本/超时六层工程基础设施包裹 Agent 核心逻辑，让业务逻辑只关注功能。"
+difficulty: advanced

@@ -1,0 +1,145 @@
+id: "KN-C-000072"
+type: Practice
+name: "Context Pruning（上下文裁剪）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - cost
+  - context-window
+  - optimization
+  - token
+
+aliases:
+  - "上下文裁剪"
+  - "Prompt 瘦身"
+  - "Context Optimization"
+
+summary: "在构建 LLM Prompt 时，主动识别并删除对当前任务无用的内容（HTML 标签、冗余文本、无关上下文），在不损失质量的前提下减少 token 用量。"
+
+definition: |
+  Context Pruning 是在 Prompt 发送给 LLM 之前的主动优化步骤：
+  识别并删除对当前任务无实质贡献的内容，减少无效 token 消耗。
+  与 Context Compression（压缩摘要）的区别：
+  - Context Compression：信息量不变，通过摘要减少表达长度
+  - Context Pruning：直接删除对当前任务无用的内容，不做摘要
+
+why: |
+  AI 应用中五类常见的"token 浪费"：
+  1. 将整个 HTML 页面塞进 Prompt（实际有用的文字只占 20%）
+  2. RAG 检索到 10 个文档块，全部放入 Prompt（实际相关的只有 3 个）
+  3. 将完整的数据库表结构放入 SQL 生成 Prompt（只需要用到的 3 张表）
+  4. 对话历史中充满了"好的"、"明白了"等无信息量的消息
+  5. 系统提示中有大量对当前任务无关的说明
+  这些浪费不仅增加成本，还会让 LLM 淹没在噪音中，降低输出质量。
+
+mental_model: |
+  Context Pruning = 简历优化
+  - 没有 Pruning：把 20 年所有工作经历全写上（10 页简历）
+  - 有 Pruning：针对这个职位，只写相关经历（1 页简历）
+  - 结果：招聘官（LLM）更容易找到关键信息，决策更准确
+
+  技术类比：数据库查询
+  - 差：SELECT * FROM users, orders, products, reviews  （全部塞进去）
+  - 好：SELECT u.name, o.total FROM users u JOIN orders o ON ...（只取需要的）
+
+pruning_techniques:
+  - technique: "HTML/Markdown 清洗"
+    description: "从网页或文档中提取纯文本，删除标签、脚本、样式"
+    before_tokens: "~10,000（含 HTML）"
+    after_tokens: "~2,000（纯文本）"
+    savings: "80%"
+    code: |
+      from bs4 import BeautifulSoup
+
+      def extract_text_from_html(html: str) -> str:
+          soup = BeautifulSoup(html, 'html.parser')
+          # 删除 script、style 标签
+          for tag in soup(['script', 'style', 'nav', 'footer', 'header']):
+              tag.decompose()
+          return soup.get_text(separator='\n', strip=True)
+
+  - technique: "RAG 结果过滤"
+    description: "检索到多个文档块后，用相关性阈值过滤低质量结果"
+    before_tokens: "5000（10个块）"
+    after_tokens: "1500（3个高相关块）"
+    savings: "70%"
+    code: |
+      def filter_rag_results(results: list[dict], threshold: float = 0.75) -> list[dict]:
+          """只保留相关性分数高于阈值的文档块"""
+          filtered = [r for r in results if r["score"] >= threshold]
+          # 最多保留 5 个，避免 Prompt 过长
+          return filtered[:5]
+
+  - technique: "数据库 Schema 裁剪"
+    description: "SQL 生成任务只提供相关表的 Schema，不提供全库结构"
+    before_tokens: "8000（完整 Schema）"
+    after_tokens: "800（相关 3 张表）"
+    savings: "90%"
+    code: |
+      def get_relevant_schema(query: str, all_tables: dict) -> str:
+          """根据查询意图，只返回相关表的 Schema"""
+          # 用关键词匹配找相关表
+          relevant_tables = [
+              table for table, schema in all_tables.items()
+              if any(keyword in query.lower() for keyword in schema["keywords"])
+          ]
+          return "\n".join([all_tables[t]["schema"] for t in relevant_tables[:5]])
+
+  - technique: "对话历史去冗余"
+    description: "删除对话中的无信息量消息（确认回复、感谢语等）"
+    before_tokens: "3000（含大量'好的''明白了'）"
+    after_tokens: "1500（只保留有实质内容的消息）"
+    code: |
+      LOW_INFO_PATTERNS = [
+          r"^(好的|明白了|收到|谢谢|ok|好|嗯|是的)[。！？,]*$",
+          r"^(sure|got it|okay|thanks)[.!?]*$"
+      ]
+
+      def prune_low_info_messages(messages: list[dict]) -> list[dict]:
+          import re
+          return [
+              msg for msg in messages
+              if msg["role"] == "system"  # 保留 system prompt
+              or not any(re.match(p, msg["content"].strip(), re.IGNORECASE)
+                        for p in LOW_INFO_PATTERNS)
+          ]
+
+best_practices:
+  - "Pruning 在 Prompt 构建时执行，而非发送后：越早裁剪越省钱"
+  - "RAG 结果相关性过滤：相关性分数 < 0.75 的结果不放入 Prompt"
+  - "为每个任务场景单独设计 Pruning 规则：SQL 生成和问答的裁剪策略不同"
+  - "记录 Pruning 前后的 token 数量：量化节省效果，持续优化规则"
+
+anti_patterns:
+  - pattern: "整个网页 HTML 直接塞进 Prompt"
+    consequence: "90% 的 token 是标签噪音，LLM 处理效率低，成本高"
+  - pattern: "RAG 检索 Top-10 全部放入 Prompt 不过滤"
+    consequence: "低相关的文档块干扰 LLM，输出质量下降且成本浪费"
+  - pattern: "Pruning 太激进，删除了有用信息"
+    consequence: "LLM 缺失关键上下文，输出质量下降，省了成本但失去了质量"
+
+relationships:
+  related_to:
+    - id: "KN-C-000067"
+      note: "Context Compression 是 Pruning 的补充：Pruning 删无用内容，Compression 压缩有用内容"
+    - id: "KN-C-000069"
+      note: "Context Pruning 直接减少 Token Budget 消耗"
+    - id: "KN-C-000034"
+      note: "RAG Reranking 的结果是 Context Pruning 的重要输入"
+
+interview_points:
+  - "有哪些常见的 Prompt 中的 token 浪费来源？各举一个例子。"
+  - "Context Pruning 和 Context Compression 有什么区别？各自适合什么场景？"
+  - "如何对 RAG 检索结果做裁剪？相关性阈值怎么设定？"
+  - "Pruning 太激进导致质量下降，如何找到裁剪的平衡点？（L3+ 考察）"
+
+exam_points:
+  - "五类常见 token 浪费：整页 HTML / RAG 全量放入 / 完整 Schema / 无信息量对话 / 无关系统提示"
+  - "HTML 裁剪：BeautifulSoup 提取纯文本，节省 80% token"
+  - "RAG 过滤：相关性分数 < 0.75 的结果不放入 Prompt"
+  - "Pruning（删除）vs Compression（压缩）：前者删除无用，后者浓缩有用"
+
+one_liner: "Context Pruning = 发给 LLM 之前先做'减法'，删掉 HTML 标签、低相关 RAG 块、无意义对话，让每个 token 都有用。"
+difficulty: intermediate

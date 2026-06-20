@@ -1,0 +1,125 @@
+id: "KN-P-000008"
+type: Pattern
+name: "Semantic Cache Pattern（语义缓存模式）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - cost
+  - pattern
+  - cache
+  - optimization
+
+aliases:
+  - "语义缓存"
+  - "LLM Response Cache"
+
+summary: "缓存 LLM 的问答对，新查询先做向量相似度匹配，命中时直接返回缓存结果，跳过 LLM 调用，降低成本和延迟。"
+
+definition: |
+  Semantic Cache Pattern 是在 LLM 调用层的缓存设计模式：
+  不同于传统精确键值缓存，语义缓存基于向量相似度匹配——
+  语义相近的问题（即使措辞不同）共享同一缓存条目。
+
+  三个核心操作：
+  1. Cache Lookup：将新问题向量化，在缓存中搜索最相似问题
+  2. Cache Hit：相似度 ≥ 阈值，直接返回缓存答案
+  3. Cache Miss：相似度 < 阈值，调用 LLM，将结果写入缓存
+
+note: "此节点是 KN-C-000070（Semantic Cache）的 Pattern 视角，聚焦在设计模式层面，KN-C-000070 聚焦实现细节。"
+
+why: |
+  生产 AI 系统中，大量请求是高度相似的重复性问题：
+  文档问答系统里"怎么申请年假？"和"年假怎么申请？"是同一问题。
+  普通缓存（字符串精确匹配）无法命中，每次都重新调用 LLM。
+  语义缓存命中这两个问题，节省一次 LLM 调用。
+  实际生产中命中率 30-60%，成本和延迟大幅降低。
+
+mental_model: |
+  语义缓存 = 聪明的图书馆员
+  - 普通缓存（书名精确匹配）：只有书名完全一样才找到
+  - 语义缓存（主题匹配）：知道"人工智能"和"AI"是同一类书
+  读者（用户）问"有讲机器学习的书吗？"
+  图书馆员（缓存）想起上周有人问过"机器学习入门资料有哪些？"
+  给了同样的推荐，没有重新查目录（调用 LLM）。
+
+cache_architecture: |
+  ┌─────────────────────────────────────────┐
+  │              AI 应用层                   │
+  │   用户问题 → [Semantic Cache Layer]      │
+  │               ↓ Cache Miss              │
+  │           [LLM API 调用]                │
+  │               ↓ 结果                    │
+  │           [写入缓存]                    │
+  └─────────────────────────────────────────┘
+
+  Cache Layer 内部：
+  问题 → Embedding Model → 向量
+       ↓
+  Vector DB 相似度搜索
+       ↓
+  相似度 ≥ 0.95？→ Yes: 返回缓存答案
+                 → No:  调用 LLM + 写入缓存
+
+cache_key_design:
+  - component: "问题文本的 Embedding 向量"
+    note: "核心 key，决定匹配质量"
+  - component: "System Prompt 哈希（可选）"
+    note: "不同 System Prompt 的相同问题可能有不同答案，需要隔离"
+  - component: "用户 ID / 租户 ID（敏感内容场景）"
+    note: "用户专属问答不能跨用户共享缓存"
+  - component: "模型版本（可选）"
+    note: "切换模型版本后，旧缓存可能不适用"
+
+threshold_tuning:
+  too_low:
+    value: "< 0.85"
+    risk: "不同问题被错误命中，返回错误答案，系统可信度崩溃"
+  sweet_spot:
+    value: "0.92 - 0.97"
+    note: "推荐范围，根据业务容忍度调整"
+  too_high:
+    value: "> 0.99"
+    risk: "近似精确匹配，命中率极低，缓存形同虚设"
+
+what_not_to_cache:
+  - "实时性要求高的查询（天气、股价、新闻）"
+  - "包含用户个人数据的回答（隐私风险）"
+  - "随机性内容（'给我一个笑话'）"
+  - "包含时间敏感指令的查询（'今天的日程'）"
+
+best_practices:
+  - "为缓存条目设置 TTL：知识类 7 天，实时类不缓存，政策类按更新频率设"
+  - "记录命中率：命中率持续低于 20% 说明阈值或嵌入模型需要调整"
+  - "冷启动预热：系统启动时把 Top 100 常见问题写入缓存"
+  - "缓存容量管理：LRU 策略淘汰低频条目，防止缓存无限膨胀"
+
+anti_patterns:
+  - pattern: "全局单一命名空间，不区分 System Prompt 或用户"
+    consequence: "同一问题在不同角色/用户下的答案不同，缓存命中返回错误结果"
+  - pattern: "不监控缓存命中率，盲目信任缓存"
+    consequence: "无法发现阈值设置问题，缓存实际上没有起到作用"
+
+relationships:
+  concept_version:
+    - id: "KN-C-000070"
+      note: "KN-C-000070 是此 Pattern 的实现细节版本"
+  used_with:
+    - id: "KN-P-000009"
+      note: "Model Routing Pattern 与语义缓存配合：缓存命中直接返回，缓存未命中才路由到合适模型"
+
+interview_points:
+  - "语义缓存和传统 HTTP 缓存的本质区别是什么？"
+  - "相似度阈值怎么调？太低和太高各有什么问题？"
+  - "为什么某些查询不应该走语义缓存？举 3 个例子。"
+  - "如何设计缓存的 key 结构以避免跨用户的缓存污染？（L3+ 考察）"
+
+exam_points:
+  - "语义缓存 = 向量相似度匹配，意思相近共享缓存，而非字符串精确匹配"
+  - "阈值推荐：0.92-0.97，低了返回错误答案，高了命中率极低"
+  - "不缓存：实时数据 / 个人数据 / 随机内容"
+  - "key 需要包含 System Prompt 哈希，不同 System Prompt 下隔离缓存"
+
+one_liner: "语义缓存 = 向量相似度版的 Redis：意思一样的问题复用缓存，不管措辞怎么变，命中率 30-60%，省一半 LLM 调用。"
+difficulty: intermediate

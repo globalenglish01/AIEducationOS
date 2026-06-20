@@ -1,0 +1,181 @@
+id: "KN-C-000071"
+type: Pattern
+name: "Model Routing（模型路由）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - cost
+  - optimization
+  - model-selection
+  - routing
+
+aliases:
+  - "模型路由"
+  - "模型分级"
+  - "LLM Router"
+  - "智能模型选择"
+
+summary: "根据任务复杂度和需求自动选择合适的 LLM（大模型/小模型/规则），在保证质量的前提下最小化成本。"
+
+definition: |
+  Model Routing 是 AI 系统中的智能调度机制：
+  不同任务对 LLM 能力的需求差异巨大，
+  用大模型处理简单任务是成本浪费，
+  用小模型处理复杂推理任务会质量下降。
+  Model Routing 在请求入口判断任务类型，
+  将其路由到最合适（性价比最优）的处理方式：
+  - 规则/模板 → 零 LLM 成本
+  - 轻量小模型（GPT-4o-mini / Haiku）→ 低成本
+  - 重型大模型（GPT-4o / Claude Opus）→ 高质量
+
+why: |
+  不同任务的成本差异可以是 50-100 倍：
+  - GPT-4o：$5/M tokens（适合复杂推理）
+  - GPT-4o-mini：$0.15/M tokens（适合分类/提取）
+  - 规则：$0（适合格式验证）
+
+  错误路由的代价：
+  - 分类任务用 GPT-4o → 成本浪费 33x（效果几乎一样）
+  - 复杂推理用 GPT-4o-mini → 质量严重下降
+
+mental_model: |
+  Model Routing = 医院分诊台
+  - 轻症（简单任务）→ 全科门诊（小模型）：头痛发烧，普通医生能处理
+  - 中症（中等任务）→ 专科门诊（中型模型）：需要专科知识
+  - 重症（复杂任务）→ 主任医师（大模型）：复杂病情，需要最强专家
+  分诊台（Router）的职责：快速判断病情复杂度，路由到最合适的医生
+  不能所有人都去找主任医师——挤爆了且浪费资源。
+
+routing_rules: |
+  # 三级路由规则（从便宜到贵）
+
+  ROUTING_RULES = {
+      # 第0级：规则处理（零 LLM 成本）
+      "rule_based": {
+          "conditions": [
+              "is_format_validation",    # 格式校验（邮箱/手机号/日期）
+              "is_template_fill",        # 模板填充（固定格式输出）
+              "is_keyword_extraction",   # 关键词提取（正则可搞定）
+          ],
+          "handler": "rule_engine",
+          "cost": "$0"
+      },
+
+      # 第1级：轻量小模型（低成本）
+      "small_model": {
+          "conditions": [
+              "is_classification",       # 意图分类、情感分析
+              "is_simple_extraction",    # 简单信息提取
+              "is_translation",          # 翻译（非专业领域）
+              "is_short_summary",        # 短文本摘要（<500字）
+          ],
+          "handler": "gpt-4o-mini",
+          "cost": "$0.15/M tokens"
+      },
+
+      # 第2级：重型大模型（高质量）
+      "large_model": {
+          "conditions": [
+              "is_complex_reasoning",    # 多步推理、数学、逻辑
+              "is_code_generation",      # 复杂代码生成
+              "is_long_analysis",        # 长文档深度分析
+              "is_creative_writing",     # 创意写作
+              "needs_nuanced_judgment",  # 需要细微判断力
+          ],
+          "handler": "gpt-4o",
+          "cost": "$5/M tokens"
+      }
+  }
+
+implementation: |
+  from enum import Enum
+
+  class ModelTier(Enum):
+      RULE = "rule"
+      SMALL = "gpt-4o-mini"
+      LARGE = "gpt-4o"
+
+  class ModelRouter:
+      def __init__(self, classifier_llm):
+          # 用轻量模型做路由分类（分类成本 < 路由带来的节省）
+          self.classifier = classifier_llm
+
+      def route(self, task: str, context: dict = None) -> ModelTier:
+          # 快速规则检查（零成本）
+          if self._is_rule_based(task):
+              return ModelTier.RULE
+
+          # 用小模型做复杂度分类
+          prompt = f"""
+          判断以下任务的复杂度：
+          任务：{task}
+          选择：simple（分类/提取/翻译）/ complex（推理/代码/深度分析）
+          只返回一个词：simple 或 complex
+          """
+          result = self.classifier.chat([{"role": "user", "content": prompt}])
+          return ModelTier.SMALL if "simple" in result.lower() else ModelTier.LARGE
+
+      def _is_rule_based(self, task: str) -> bool:
+          RULE_KEYWORDS = ["是否是邮箱", "格式验证", "是否包含"]
+          return any(kw in task for kw in RULE_KEYWORDS)
+
+  # 使用示例
+  router = ModelRouter(classifier_llm=small_llm)
+
+  def smart_complete(task: str) -> str:
+      tier = router.route(task)
+      if tier == ModelTier.RULE:
+          return rule_engine.process(task)
+      elif tier == ModelTier.SMALL:
+          return small_llm.chat([{"role": "user", "content": task}])
+      else:
+          return large_llm.chat([{"role": "user", "content": task}])
+
+cost_comparison:
+  scenario: "1000 次混合任务（600 简单 + 400 复杂）"
+  without_routing:
+    model: "全用 GPT-4o"
+    cost: "1000 次 × $5/M = $5（假设平均 1K tokens）"
+  with_routing:
+    breakdown:
+      - "600 简单任务 × GPT-4o-mini $0.15/M = $0.09"
+      - "400 复杂任务 × GPT-4o $5/M = $2.00"
+      - "路由分类成本（600次小模型调用）≈ $0.01"
+    total: "$2.10"
+  savings: "成本降低 58%，质量不下降"
+
+best_practices:
+  - "路由本身用最便宜的模型：分类任务用小模型，分类结果准确率通常 > 95%"
+  - "维护路由准确率指标：定期抽样检查路由决策是否合理"
+  - "保守路由策略：不确定时路由到更贵的模型，质量优先于成本"
+  - "A/B 测试路由规则：对比路由前后的质量和成本数据"
+
+anti_patterns:
+  - pattern: "复杂推理任务路由到小模型（为了省钱）"
+    consequence: "质量明显下降，用户投诉，得不偿失"
+  - pattern: "用大模型做路由分类（用最贵的模型做最简单的决策）"
+    consequence: "路由成本本身超过了路由带来的节省"
+
+relationships:
+  related_to:
+    - id: "KN-C-000069"
+      note: "Model Routing 在预算紧张时自动切换到更便宜的模型"
+    - id: "KN-C-000070"
+      note: "Semantic Cache 命中时完全跳过路由，进一步降低成本"
+
+interview_points:
+  - "为什么不能所有任务都用最强的 LLM？给出具体的成本数字说明。"
+  - "Model Routing 的路由决策本身应该用什么模型？为什么？"
+  - "如何设计路由规则？哪些任务适合小模型，哪些需要大模型？"
+  - "如何评估 Model Routing 方案的效果？需要监控哪些指标？（L3+ 考察）"
+
+exam_points:
+  - "三级路由：规则（$0）→ 小模型（分类/提取）→ 大模型（推理/代码）"
+  - "路由分类器用小模型：分类任务本身简单，用大模型做路由成本反增"
+  - "不确定时路由到大模型：质量优先，宁可多花钱也不输出错误答案"
+  - "实际节省 40-60% 成本，且对复杂任务质量无影响"
+
+one_liner: "Model Routing = 医院分诊，简单问题不占主任号——按任务复杂度自动选模型，成本降 40-60%。"
+difficulty: intermediate

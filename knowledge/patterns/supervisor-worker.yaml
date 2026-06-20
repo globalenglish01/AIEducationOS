@@ -1,0 +1,158 @@
+id: "KN-P-000006"
+type: Pattern
+name: "Supervisor-Worker Pattern（主从多 Agent 模式）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - agent
+  - pattern
+  - multi-agent
+  - orchestration
+
+aliases:
+  - "Supervisor-Worker"
+  - "主从模式"
+  - "Orchestrator-Executor"
+
+summary: "多 Agent 协作模式：一个 Supervisor Agent 负责任务分解和调度，多个 Worker Agent 专注执行子任务，适合复杂任务的并行处理。"
+
+definition: |
+  Supervisor-Worker 是多 Agent 系统中最常用的协作模式：
+  - Supervisor（主控 Agent）：接收用户任务，分析并分解为子任务，
+    决定派给哪个 Worker，汇总结果，处理异常
+  - Worker（执行 Agent）：专注于特定领域的子任务执行，
+    接受 Supervisor 的指令，完成后返回结果
+
+  与 Pipeline（串行）不同，Supervisor-Worker 支持动态调度：
+  Supervisor 可以根据中间结果决定是否重新分配，是否并行启动多个 Worker。
+
+why: |
+  单 Agent 面对复杂任务的三个瓶颈：
+  1. 能力边界：一个 Agent 不可能精通所有领域（代码+法律+数据分析）
+  2. 上下文限制：复杂任务的中间状态塞满 Context Window
+  3. 串行瓶颈：多个子任务必须顺序执行，耗时长
+
+  Supervisor-Worker 解决了这三个问题：
+  - 专业化：每个 Worker 只处理一个领域，能力更强
+  - 隔离：每个 Worker 有独立的 Context，互不干扰
+  - 并行：Supervisor 可以同时启动多个 Worker
+
+mental_model: |
+  Supervisor-Worker = 项目经理 + 专家团队
+  - 项目经理（Supervisor）：不亲自写代码，但负责：
+    分解需求、分配任务给合适的专家、跟进进度、汇总交付
+  - 专家（Worker）：只做自己专业领域的事：
+    前端工程师只写 UI、后端工程师只写 API、DBA 只优化数据库
+  - 结果：比一个"全栈"员工（单 Agent）更快、更专业
+
+how_it_works: |
+  # LangGraph Supervisor-Worker 实现
+  from langgraph_supervisor import create_supervisor
+  from langgraph.prebuilt import create_react_agent
+
+  # 创建专业化 Worker Agent
+  researcher = create_react_agent(
+      llm, tools=[search_web, fetch_url],
+      name="researcher",
+      prompt="你是研究专家，负责收集和整理信息"
+  )
+  coder = create_react_agent(
+      llm, tools=[write_file, execute_python],
+      name="coder",
+      prompt="你是编程专家，负责编写和运行代码"
+  )
+  analyst = create_react_agent(
+      llm, tools=[read_csv, create_chart],
+      name="analyst",
+      prompt="你是数据分析专家，负责数据分析和可视化"
+  )
+
+  # 创建 Supervisor，管理所有 Worker
+  supervisor = create_supervisor(
+      llm,
+      agents=[researcher, coder, analyst],
+      prompt="""你是项目主管，负责：
+      1. 分析用户任务，分解为子任务
+      2. 决定派给哪个专家处理
+      3. 汇总结果，完成用户请求
+      可用专家：researcher（研究）/ coder（编程）/ analyst（分析）"""
+  )
+
+  result = supervisor.invoke({
+      "messages": [{"role": "user",
+                    "content": "分析苹果公司最近一季度财报，生成可视化图表并写一份分析报告"}]
+  })
+  # Supervisor 内部流程：
+  # → 派 researcher 搜集财报数据
+  # → 派 analyst 分析数据并生成图表（可与 coder 并行）
+  # → 派 coder 生成报告文档
+  # → 汇总结果返回用户
+
+design_decisions:
+  - decision: "Supervisor 使用大模型还是小模型？"
+    recommendation: "大模型（GPT-4o/Claude Opus）"
+    reason: "Supervisor 需要理解复杂任务、做调度决策，需要强推理能力"
+
+  - decision: "Worker 之间是否共享状态？"
+    recommendation: "通过 Supervisor 中转，不直接共享"
+    reason: "直接共享导致状态混乱；Supervisor 中转保持清晰的责任边界"
+
+  - decision: "Worker 执行失败时 Supervisor 如何处理？"
+    recommendation: "记录失败，重试或换另一个 Worker，不能直接崩溃"
+    reason: "Worker 失败是常见情况，Supervisor 必须有容错逻辑"
+
+supervisor_vs_pipeline:
+  supervisor:
+    scheduling: "动态（Supervisor 实时决策）"
+    parallelism: "支持（多 Worker 并行）"
+    flexibility: "高（可根据中间结果调整）"
+    complexity: "高（Supervisor 本身是复杂 Agent）"
+    use_when: "任务动态，需要根据中间结果调整路线"
+  pipeline:
+    scheduling: "静态（预定义顺序）"
+    parallelism: "有限（并行子图）"
+    flexibility: "低（固定执行顺序）"
+    complexity: "低（每个节点逻辑简单）"
+    use_when: "任务流程固定，步骤顺序明确"
+
+best_practices:
+  - "每个 Worker 只有完成自己任务所需的最小工具集（最小权限原则）"
+  - "Worker 的 System Prompt 要明确职责边界：'你只负责数据分析，不做代码编写'"
+  - "Supervisor 要记录每次任务分配和结果，便于调试和审计"
+  - "设置全局超时：整个 Supervisor-Worker 流程必须有时间上限"
+
+anti_patterns:
+  - pattern: "Supervisor 自己也参与执行任务（Supervisor 变成 Worker）"
+    consequence: "Supervisor 的 Context 被执行细节污染，调度能力下降"
+  - pattern: "所有 Worker 使用相同的大模型（包括简单任务）"
+    consequence: "成本浪费；简单 Worker 任务用小模型即可"
+  - pattern: "Worker 之间直接通信，绕过 Supervisor"
+    consequence: "状态不一致，Supervisor 失去全局视角，难以调试"
+
+relationships:
+  used_in:
+    - id: "KN-C-000020"
+      note: "Supervisor-Worker 是多 Agent 系统的核心架构模式"
+  contrasted_with:
+    - id: "KN-P-000008"
+      note: "Pipeline Pattern 是串行固定流程，Supervisor-Worker 是动态调度"
+  related_to:
+    - id: "KN-C-000051"
+      note: "A2A Protocol 可用于 Supervisor 与 Worker 之间的标准化通信"
+
+interview_points:
+  - "Supervisor-Worker 模式中，Supervisor 和 Worker 各自的职责是什么？"
+  - "与 Pipeline 模式相比，Supervisor-Worker 的优势和代价是什么？"
+  - "如何设计一个 Worker 失败时的容错机制？"
+  - "为什么 Supervisor 应该用大模型，而部分 Worker 可以用小模型？（L3+ 考察成本意识）"
+
+exam_points:
+  - "Supervisor：任务分解+调度+汇总；Worker：专注子任务执行"
+  - "vs Pipeline：Supervisor-Worker 动态调度，Pipeline 静态顺序"
+  - "Worker 最小权限：只给完成任务所需的工具，不多给"
+  - "Supervisor 不执行：只调度，保持全局视角"
+
+one_liner: "Supervisor-Worker = 项目经理+专家团队：主控 Agent 分解任务派活，专业 Worker 各司其职并行执行，比单 Agent 更快更专。"
+difficulty: advanced

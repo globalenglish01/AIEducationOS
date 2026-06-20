@@ -1,0 +1,136 @@
+id: "KN-T-000001"
+type: Tool
+name: "vLLM（高吞吐 LLM 推理引擎）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L3"
+tags:
+  - tool
+  - inference
+  - serving
+  - performance
+
+aliases:
+  - "vLLM"
+  - "Virtual LLM"
+
+summary: "高性能开源 LLM 推理服务引擎，通过 PagedAttention 技术大幅提升吞吐量，提供兼容 OpenAI API 的服务接口。"
+
+definition: |
+  vLLM 是 UC Berkeley 开发的开源 LLM 推理引擎，
+  核心技术是 PagedAttention —— 受操作系统内存分页管理启发，
+  将 KV Cache 分成小页面（Pages）动态分配，
+  避免了传统推理中 KV Cache 的内存碎片和预分配浪费。
+
+  关键特性：
+  - PagedAttention：KV Cache 利用率从 ~20% 提升到 ~90%+
+  - Continuous Batching：动态批处理，不等批次凑满就处理
+  - OpenAI 兼容 API：替换 base_url 即可从 OpenAI 迁移到 vLLM
+  - 支持多 GPU：Tensor Parallel 分布式推理
+
+why: |
+  自托管 LLM 的两个核心痛点：
+  1. 吞吐量低：传统框架（HuggingFace transformers）单 GPU 每秒处理请求数少
+  2. 内存浪费：KV Cache 必须预分配最大长度，90% 的内存被闲置
+
+  vLLM 用 PagedAttention 解决了 KV Cache 内存问题，
+  使同等 GPU 资源可服务 3-5x 更多并发请求。
+
+mental_model: |
+  vLLM PagedAttention = 酒店动态分房间
+  传统方式（静态分配）：
+  预先锁定最大 2048 token 对应的内存给每个请求，
+  即使请求只用了 200 token，剩余的内存也被浪费
+
+  vLLM PagedAttention（动态分配）：
+  像酒店根据客人实际需要动态分配房间——
+  客人来一个分一个房间，走了立刻收回再分配给下一个
+  同等资源，容纳 3-5 倍的并发"客人"（请求）
+
+core_usage: |
+  # 启动 vLLM 服务（兼容 OpenAI API）
+  # GPU 环境下：
+  python -m vllm.entrypoints.openai.api_server \
+      --model Qwen/Qwen2.5-7B-Instruct \
+      --tensor-parallel-size 2 \           # 2 GPU 并行
+      --max-model-len 8192 \              # 最大 Context 长度
+      --gpu-memory-utilization 0.9 \      # GPU 显存使用率
+      --port 8000
+
+  # 客户端调用（与 OpenAI SDK 完全兼容）
+  from openai import OpenAI
+
+  client = OpenAI(
+      base_url="http://localhost:8000/v1",  # 只改这一行，其余代码不变
+      api_key="EMPTY"
+  )
+
+  response = client.chat.completions.create(
+      model="Qwen/Qwen2.5-7B-Instruct",
+      messages=[{"role": "user", "content": "什么是 PagedAttention？"}],
+      temperature=0.7,
+      max_tokens=1024
+  )
+
+performance_tuning:
+  - param: "--tensor-parallel-size"
+    description: "张量并行 GPU 数，模型权重分散到多 GPU"
+    when: "模型太大单 GPU 放不下"
+
+  - param: "--gpu-memory-utilization"
+    description: "KV Cache 使用的 GPU 显存比例（默认 0.9）"
+    when: "OOM 时调小，吞吐量不足时调大"
+
+  - param: "--max-num-seqs"
+    description: "最大并发序列数（并发请求数）"
+    when: "控制最大并发，防止 OOM"
+
+  - param: "--quantization"
+    description: "量化方式：awq/gptq/int8/fp8"
+    when: "GPU 显存不足，接受轻微质量损失"
+
+vllm_vs_alternatives:
+  vs_huggingface:
+    throughput: "vLLM 高 3-10x（PagedAttention + Continuous Batching）"
+    ease_of_use: "HuggingFace 更易上手"
+    use_when: "生产高并发服务选 vLLM，研究和单次推理选 HuggingFace"
+  vs_ollama:
+    positioning: "vLLM：生产高并发服务（GPU 服务器）；Ollama：本地单机开发（消费级 GPU/CPU）"
+    api: "两者都兼容 OpenAI API"
+    throughput: "vLLM 远高于 Ollama（专门为高吞吐优化）"
+
+best_practices:
+  - "生产部署用 Docker + K8s：vllm 官方提供 Docker 镜像"
+  - "监控 GPU 利用率和 KV Cache 使用率：cache 满时新请求会等待"
+  - "量化部署（AWQ/GPTQ）：显存减半，吞吐略降，性价比高"
+  - "多模型场景：每个模型单独一个 vLLM 实例，用 nginx 做请求路由"
+
+anti_patterns:
+  - pattern: "把 vLLM 用于本地开发调试（显卡资源要求高）"
+    consequence: "开发环境用 Ollama 即可，vLLM 的优势在高并发生产场景"
+  - pattern: "--gpu-memory-utilization 设为 1.0"
+    consequence: "没有显存留给 PyTorch 框架自身，容易 OOM 崩溃"
+
+relationships:
+  compared_to:
+    - id: "KN-C-000076"
+      note: "Ollama 是本地开发版，vLLM 是生产高并发版，两者 API 兼容"
+  serves:
+    - id: "KN-C-000075"
+      note: "vLLM 可用于部署 Fine-tuning 后的自定义模型"
+
+interview_points:
+  - "vLLM 的 PagedAttention 解决了什么问题？原理是什么？"
+  - "Continuous Batching 和传统静态 Batching 的区别是什么？"
+  - "vLLM 和 Ollama 各适合什么场景？"
+  - "如何在 GPU 显存不足时优化 vLLM 部署？（L3+ 考察量化和并行策略）"
+
+exam_points:
+  - "PagedAttention：KV Cache 动态分页，利用率从 20% 升至 90%+，吞吐提升 3-10x"
+  - "兼容 OpenAI API：只改 base_url，其余代码不变"
+  - "vs Ollama：vLLM 生产高并发，Ollama 本地开发"
+  - "量化（AWQ/GPTQ）：显存减半，轻微质量损失，生产性价比高"
+
+one_liner: "vLLM = 自托管 LLM 的高速引擎：PagedAttention 让 KV Cache 利用率 90%+，同等 GPU 服务 3-10x 更多并发请求，OpenAI API 完全兼容。"
+difficulty: advanced

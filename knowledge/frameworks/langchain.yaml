@@ -1,0 +1,129 @@
+id: "KN-F-000001"
+type: Framework
+name: "LangChain"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - framework
+  - llm
+  - rag
+  - chain
+
+aliases:
+  - "LangChain 框架"
+  - "langchain"
+
+summary: "AI 应用开发的基础框架，提供 LLM 调用、RAG、Chain、Memory、Tool 的标准抽象，是 LangGraph 的底层依赖。"
+
+definition: |
+  LangChain 是 Python/JavaScript 的 AI 应用开发框架，提供：
+  - LLM 统一接口：用同一套代码调用 OpenAI / Anthropic / 本地模型
+  - Document Loaders：从 PDF、网页、数据库等加载文档
+  - Text Splitters：文本分块（支持多种策略）
+  - Embedding + Vector Store：标准化向量化和存储接口
+  - Retriever：封装 RAG 检索逻辑
+  - Chain / LCEL（LangChain Expression Language）：组合 LLM 调用链
+  - Memory：对话历史管理抽象
+
+  LangChain 的核心价值是**标准化抽象**：
+  换一个 LLM 供应商只需改一行代码，其余逻辑不变。
+
+why: |
+  直接调用 LLM API 构建 AI 应用的痛点：
+  - 每换一个 LLM 供应商要重写所有调用代码
+  - RAG 的文档加载、分块、向量化、检索需要大量样板代码
+  - 没有标准的 Memory、Tool 抽象，每个项目自己重复实现
+
+  LangChain 提供了这些组件的标准实现：
+  应用层面向 LangChain 接口编程，而非直接面向各个 LLM API。
+
+mental_model: |
+  LangChain = AI 应用的 Spring Framework
+  - Spring（Java Web 开发）：统一封装了数据库、HTTP、缓存等基础设施
+  - LangChain（AI 应用开发）：统一封装了 LLM、RAG、Memory、Tool 等 AI 基础设施
+  有了 Spring，写 Web 应用不需要自己实现 JDBC、Servlet；
+  有了 LangChain，写 AI 应用不需要自己实现 Embedding、Retriever、Chain。
+
+core_components: |
+  # 1. LLM 统一接口（切换模型只改一行）
+  from langchain_openai import ChatOpenAI
+  from langchain_anthropic import ChatAnthropic
+
+  llm = ChatOpenAI(model="gpt-4o")        # OpenAI
+  # llm = ChatAnthropic(model="claude-3-5-sonnet")  # 换 Anthropic，其他代码不变
+
+  # 2. RAG 完整流程
+  from langchain_community.document_loaders import PyPDFLoader
+  from langchain.text_splitter import RecursiveCharacterTextSplitter
+  from langchain_openai import OpenAIEmbeddings
+  from langchain_community.vectorstores import Chroma
+  from langchain.chains import RetrievalQA
+
+  loader = PyPDFLoader("document.pdf")
+  docs = loader.load()
+  splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+  chunks = splitter.split_documents(docs)
+  vectordb = Chroma.from_documents(chunks, OpenAIEmbeddings())
+  retriever = vectordb.as_retriever(search_kwargs={"k": 5})
+  qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+  answer = qa_chain.invoke("文档里说了什么？")
+
+  # 3. LCEL（LangChain Expression Language）—— 管道式组合
+  from langchain_core.prompts import ChatPromptTemplate
+  from langchain_core.output_parsers import StrOutputParser
+
+  prompt = ChatPromptTemplate.from_template("用中文简洁回答：{question}")
+  chain = prompt | llm | StrOutputParser()  # 管道符 | 组合
+  result = chain.invoke({"question": "什么是 RAG？"})
+
+langchain_vs_langgraph:
+  langchain:
+    use_for: "RAG 系统、简单 Chain、文档处理 Pipeline、LLM 调用封装"
+    execution: "线性、无状态"
+    complexity: "低"
+  langgraph:
+    use_for: "有循环的 Agent、状态机 Workflow、复杂 Multi-Agent、需要 Checkpoint 的长任务"
+    execution: "图状态机、有状态"
+    complexity: "高"
+  relationship: "LangGraph 构建在 LangChain 之上，使用 LangChain 的 LLM/Tool 组件"
+
+best_practices:
+  - "用 LCEL 替代老版 Chain（LLMChain）：更简洁、支持流式、可并行"
+  - "LLM 调用用 langchain_openai 等官方集成包，不要直接用 openai 库（抽象层缺失）"
+  - "Vector Store 用接口编程：Chroma/FAISS/Pinecone 可以随时替换"
+  - "RAG 系统在 LangChain 基础上用 LangGraph 加状态管理（两者配合）"
+
+anti_patterns:
+  - pattern: "用 LangChain 实现复杂 Agent（需要循环和状态管理的场景）"
+    consequence: "LangChain 的 AgentExecutor 不如 LangGraph 灵活，复杂 Agent 行为难以控制"
+  - pattern: "直接升级 LangChain 大版本不测试"
+    consequence: "LangChain API 历史上有较多 breaking change，升级需要仔细测试"
+
+relationships:
+  used_by:
+    - id: "KN-F-000002"
+      note: "LangGraph 构建在 LangChain 之上，复用其 LLM、Tool、Message 抽象"
+  provides_components_for:
+    - id: "KN-C-000033"
+      note: "LangChain 提供 RAG 的标准组件（Loader/Splitter/Retriever）"
+
+interview_points:
+  - "LangChain 解决了什么问题？为什么不直接调用 OpenAI API？"
+  - "LCEL（管道符 |）是什么？相比老版 Chain 有什么优势？"
+  - "LangChain 和 LangGraph 的分工是什么？什么时候用哪个？"
+  - "LangChain 的 Vector Store 抽象如何帮助切换向量数据库？（L2+ 考察）"
+
+exam_points:
+  - "LangChain 核心：LLM 统一接口 + RAG 组件 + LCEL 管道"
+  - "LCEL：prompt | llm | parser，管道符组合，支持流式输出"
+  - "LangChain vs LangGraph：前者线性无状态，后者图状态机有状态，配合使用"
+  - "切换 LLM 供应商只改一行：from langchain_anthropic import ChatAnthropic"
+
+one_liner: "LangChain = AI 应用的 Spring Framework，统一封装 LLM/RAG/Memory/Tool，换模型只改一行代码。"
+difficulty: beginner
+
+references:
+  - "LangChain 官方文档: https://docs.langchain.com/"
+  - "LCEL 指南: https://python.langchain.com/docs/expression_language/"

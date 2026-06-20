@@ -1,0 +1,152 @@
+id: "KN-C-000075"
+type: Concept
+name: "Fine-tuning（微调）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - deployment
+  - fine-tuning
+  - training
+  - model
+
+aliases:
+  - "微调"
+  - "模型微调"
+  - "SFT（Supervised Fine-Tuning）"
+  - "LoRA"
+
+summary: "在预训练大模型基础上，用特定领域数据继续训练，使模型学会特定风格、格式或专业知识，适合风格固定、推理速度要求高的场景。"
+
+definition: |
+  Fine-tuning 是在已有预训练 LLM 的基础上，使用特定数据集继续训练的过程：
+  - 全量微调（Full Fine-tuning）：更新模型所有参数，成本极高
+  - 参数高效微调（PEFT）：只更新少量参数，LoRA 是最常用的方法
+    - LoRA（Low-Rank Adaptation）：在原始权重矩阵旁插入低秩矩阵进行训练
+  微调后的模型在目标任务上能力显著提升，推理时不需要在 Prompt 中注入大量示例。
+
+why: |
+  RAG 解决知识问题，Fine-tuning 解决行为问题：
+  - 需要 LLM 固定输出特定格式（如 SQL、JSON Schema）→ Fine-tuning
+  - 需要 LLM 使用特定语言风格（如公司内部术语体系）→ Fine-tuning
+  - 知识频繁更新、需要溯源 → RAG 更合适
+
+  Fine-tuning 的核心价值：
+  - 更小 Prompt：无需大量 few-shot 示例（节省 token 成本）
+  - 更快响应：短 Prompt 推理速度更快
+  - 更稳定格式：输出格式一致性比 Prompt 方式高
+
+mental_model: |
+  Fine-tuning = 岗前培训 vs 每次带说明书
+
+  - 没有 Fine-tuning（纯 Prompt）：
+    每次让实习生做任务，都要附上一本详细说明书（few-shot examples）
+    实习生看完说明书后才开始做，每次都要从头看
+
+  - 有 Fine-tuning：
+    提前对实习生进行专项培训（训练），让他"本能"掌握这种任务的做法
+    工作时不需要说明书，自动按培训的方式输出
+
+  结果：省掉了说明书（节省 token），做事更快（推理速度），格式更稳定
+
+rag_vs_finetuning:
+  decision_framework:
+    use_rag_when:
+      - "知识需要频繁更新（每天/每周）"
+      - "知识量巨大（数万文档），无法全放进训练集"
+      - "需要答案可溯源（指向具体文档）"
+      - "成本预算有限（RAG 比微调便宜 100x）"
+      - "快速落地，没有时间收集高质量训练数据"
+    use_finetuning_when:
+      - "输出格式固定（SQL、JSON、代码模板）"
+      - "需要模型使用特定风格或术语体系"
+      - "知识保密，不能放在外部知识库"
+      - "推理速度要求极高（短 Prompt = 快推理）"
+      - "已有大量高质量的（输入→输出）配对数据"
+
+lora_explained: |
+  LoRA 原理（直觉理解）：
+
+  原始模型权重矩阵 W（维度 d × d，参数量巨大）
+  全量微调：更新整个 W，成本 = O(d²)
+
+  LoRA 方案：
+  - 冻结原始 W，不更新
+  - 旁路插入两个小矩阵：A（d × r）和 B（r × d），其中 r << d
+  - 实际更新的参数量 = d×r + r×d = 2dr（r 通常为 4-64，远小于 d）
+  - 推理时：W_effective = W + A × B（低秩矩阵的乘积）
+
+  为什么有效：
+  微调时模型需要学习的"新知识"通常是低秩的——
+  用少量低秩参数就能表达这些变化，不需要更新全部参数。
+
+fine_tuning_pipeline: |
+  Fine-tuning 完整流程：
+
+  1. 数据收集与清洗（最关键！数据质量 > 模型选择）
+     - 收集（输入，期望输出）配对样本
+     - 去重、去噪、格式统一
+     - 建议：至少 500-1000 条高质量样本，多不如精
+
+  2. 数据集格式化（以 OpenAI 微调格式为例）
+     {"messages": [
+       {"role": "system", "content": "你是 SQL 生成专家"},
+       {"role": "user", "content": "查询所有活跃用户"},
+       {"role": "assistant", "content": "SELECT * FROM users WHERE status='active'"}
+     ]}
+
+  3. 训练（以 OpenAI Fine-tuning API 为例）
+     from openai import OpenAI
+     client = OpenAI()
+     job = client.fine_tuning.jobs.create(
+         training_file="file-xxx",
+         model="gpt-4o-mini-2024-07-18",
+         hyperparameters={"n_epochs": 3}
+     )
+
+  4. 评估
+     - 对比 baseline（Prompt Engineering）和微调后的输出质量
+     - 关注格式一致性、关键字段准确率
+     - 防止过拟合（训练集表现好，测试集表现差）
+
+  5. 部署
+     - 微调后模型有独立的 model_id
+     - 使用方式与普通 API 相同，只需替换 model 参数
+
+best_practices:
+  - "数据质量 > 数据量：100条高质量样本比 10000 条低质量样本效果更好"
+  - "先用 RAG + Few-shot 验证方向，再考虑微调：微调成本高，先低成本验证"
+  - "微调后必须做系统性评估：用测试集对比 baseline，数据说话"
+  - "记录微调实验：数据集版本、超参数、评估结果，方便复现和迭代"
+
+anti_patterns:
+  - pattern: "用脏数据微调（含错误、不一致的输出）"
+    consequence: "模型学会了错误的行为模式，微调后质量反而下降"
+  - pattern: "用 Fine-tuning 替代 RAG 注入动态知识"
+    consequence: "知识更新需要重新微调（成本高、周期长），无法实时更新"
+  - pattern: "没有测试集，只看训练集表现就上线"
+    consequence: "过拟合：训练集完美，真实用户输入效果差"
+
+relationships:
+  contrasted_with:
+    - id: "KN-C-000033"
+      note: "Fine-tuning 解决行为/风格问题，RAG 解决知识问题，场景互补"
+  related_to:
+    - id: "KN-C-000076"
+      note: "Ollama 支持本地部署 Fine-tuned 模型"
+
+interview_points:
+  - "Fine-tuning 和 RAG 的核心区别是什么？分别适合什么场景？"
+  - "LoRA 是什么？为什么它比全量微调更实用？"
+  - "Fine-tuning 数据质量为什么比数量更重要？"
+  - "如何评估 Fine-tuning 的效果？需要防范什么问题？（L3+ 考察）"
+
+exam_points:
+  - "Fine-tuning 适合：固定格式 / 特定风格 / 保密知识 / 高推理速度"
+  - "RAG 适合：频繁更新的知识 / 需要溯源 / 快速落地"
+  - "LoRA：冻结原始权重，插入低秩矩阵（A×B），参数量减少 100x+"
+  - "数据质量第一：100 条精品 > 10000 条劣质"
+
+one_liner: "Fine-tuning = 岗前专项培训，让模型'本能'输出特定格式或风格，省掉每次带说明书（few-shot）的成本。"
+difficulty: advanced

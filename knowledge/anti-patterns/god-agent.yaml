@@ -1,0 +1,159 @@
+id: "KN-X-000001"
+type: Anti-Pattern
+name: "God Agent（上帝 Agent 反模式）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - anti-pattern
+  - agent
+  - architecture
+  - design
+
+aliases:
+  - "God Agent"
+  - "上帝 Agent"
+  - "Monolithic Agent"
+  - "全能 Agent"
+
+summary: "把所有工具、逻辑、权限集中在一个超大 Agent 中的反模式，导致职责不清、难以调试、安全风险高、Context 溢出。"
+
+definition: |
+  God Agent 反模式是指：将所有功能（工具）都赋予同一个 Agent，
+  让它处理所有类型的用户请求，负责所有子任务，
+  成为系统中的"全知全能"单点。
+
+  God Agent 的典型表现：
+  - 工具列表超过 20 个（搜索、数据库、邮件、代码执行、文件操作...全给一个 Agent）
+  - System Prompt 超过 2000 tokens，覆盖所有场景的指令
+  - 没有角色分工，所有决策都由同一个 Agent 做
+  - 拥有所有资源的最高权限（读写、删除、发送）
+
+why_its_wrong: |
+  God Agent 看起来简单，实际上有四个严重问题：
+
+  1. 性能退化（Context 污染）：
+     工具太多，LLM 在一个调用中看到所有 20 个工具的定义，
+     Token 数量大增，且 LLM 容易搞混相似工具的用途
+
+  2. 调试困难：
+     一个 Agent 做所有事，失败时无法确定是哪个"职责"出了问题
+
+  3. 安全风险（最小权限违反）：
+     写报告用的 Agent 不应该有数据库删除权限；
+     God Agent 拥有所有权限，一个 Prompt 注入就可以执行最危险的操作
+
+  4. 维护困难：
+     业务规则增长时，System Prompt 不断膨胀，最终无人敢动
+
+god_agent_example: |
+  # ❌ God Agent 反模式
+  god_agent = create_react_agent(
+      llm,
+      tools=[
+          search_web,           # 信息检索
+          read_database,        # 数据库读取
+          write_database,       # 数据库写入
+          delete_database,      # 数据库删除（！）
+          send_email,           # 发送邮件
+          execute_code,         # 执行代码
+          read_file,            # 文件读取
+          write_file,           # 文件写入
+          delete_file,          # 文件删除（！）
+          call_external_api,    # 外部 API 调用
+          manage_users,         # 用户管理
+          access_payments,      # 支付操作（！！）
+          # ... 更多工具
+      ],
+      system_prompt="""你是一个全能助手，可以：
+      1. 搜索信息
+      2. 管理数据库
+      3. 发送通知邮件
+      4. 执行代码任务
+      5. 管理文件
+      6. 处理用户账号
+      7. 处理支付...
+      （长达 3000 tokens 的指令）"""
+  )
+  # 风险：任何用户都可能通过 Prompt 注入触发支付/删除操作
+
+correct_approach: |
+  # ✅ 正确做法：职责分离 + 最小权限
+  # 研究 Agent：只有只读工具
+  research_agent = create_react_agent(
+      llm,
+      tools=[search_web, read_database, read_file],
+      system_prompt="你是研究专员，负责收集信息。你只能读取数据，不能修改任何内容。"
+  )
+
+  # 执行 Agent：有限写入权限
+  writer_agent = create_react_agent(
+      llm,
+      tools=[write_file],  # 只能写文件，不能删除
+      system_prompt="你是内容写作专员，负责将研究结果写入报告文件。"
+  )
+
+  # 审批 Agent（高权限，需要人工介入）
+  admin_agent = create_react_agent(
+      llm,
+      tools=[send_email, write_database],
+      system_prompt="你是执行专员，在人工审批后执行最终操作。"
+  )
+
+  # Supervisor 协调，带 Human-in-the-Loop
+  supervisor = create_supervisor(
+      llm,
+      agents=[research_agent, writer_agent],
+      handoffs_with_approval=[admin_agent]  # 高权限 Agent 需要人工确认
+  )
+
+detection_signals:
+  - "Agent 的工具列表超过 10 个"
+  - "System Prompt 超过 2000 tokens"
+  - "Agent 同时拥有读写和删除权限"
+  - "所有用户请求都路由到同一个 Agent"
+  - "Agent 失败时无法判断是哪个子功能出了问题"
+
+refactoring_steps: |
+  当发现 God Agent 时的重构步骤：
+  1. 列出所有工具，按职责分组（读/写/删除/通知/执行）
+  2. 将高风险工具（删除/支付/发送）单独给一个需要审批的 Agent
+  3. 创建 Supervisor 协调多个专业化 Agent
+  4. 为每个 Agent 写简洁的 System Prompt（< 500 tokens）
+  5. 验证：最小权限原则检查
+
+best_practices:
+  - "单个 Agent 工具不超过 5-7 个：工具多了 LLM 选错工具的概率急剧上升"
+  - "写/删除/发送类工具单独给 Agent，加 Human-in-the-Loop"
+  - "System Prompt 目标：500 tokens 内说清楚角色和限制"
+  - "Agent 职责测试：用一句话说清楚这个 Agent 做什么——说不清楚说明职责太宽"
+
+relationships:
+  resolved_by:
+    - id: "KN-P-000006"
+      note: "Supervisor-Worker Pattern 是 God Agent 的正确替代：专业化分工"
+  related_to:
+    - id: "KN-C-000040"
+      note: "God Agent 的过宽权限放大了 Prompt Injection 的危害"
+
+interview_points:
+  - "God Agent 反模式的四个核心问题是什么？"
+  - "如何检测一个 Agent 是否陷入了 God Agent 反模式？"
+  - "如何将 God Agent 重构为正确的多 Agent 架构？"
+  - "为什么 God Agent 违反最小权限原则会特别危险？（L2+ 考察安全意识）"
+
+exam_points:
+  - "God Agent：所有工具/权限集中一个 Agent，职责不清、难调试、安全风险高"
+  - "检测信号：工具 > 10 个、Prompt > 2000 tokens、同时有读写删权限"
+  - "解决：Supervisor-Worker 专业化分工 + 最小权限原则"
+  - "高权限操作（删除/支付）单独 Agent + Human-in-the-Loop"
+
+one_liner: "God Agent = 把所有功能塞一个 Agent 的反模式：工具太多 LLM 选错，权限太高注入即灾难，调试无从下手——用 Supervisor-Worker 专业化分工解决。"
+difficulty: beginner
+
+common_misconceptions:
+  - misconception: "工具越多，Agent 越强大"
+    reality: "工具越多，LLM 选择错误的概率越高，性能反而下降；专业化 Agent 更高效"
+  - misconception: "一个 Agent 处理所有请求，系统更简单"
+    reality: "初期看似简单，随业务增长快速变成无法维护的'意大利面代码'"

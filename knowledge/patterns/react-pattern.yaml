@@ -1,0 +1,133 @@
+id: "KN-P-000005"
+type: Pattern
+name: "ReAct Pattern（推理-行动循环）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - agent
+  - pattern
+  - reasoning
+  - tool-use
+
+aliases:
+  - "ReAct"
+  - "Reasoning + Acting"
+  - "思考-行动循环"
+
+summary: "Agent 交替执行'思考（Reason）'和'行动（Act）'的循环模式，每次行动后观察结果再决定下一步，是单 Agent 最核心的执行模式。"
+
+definition: |
+  ReAct（Reasoning + Acting）是 Agent 的核心执行模式：
+  Agent 在每一步都先输出思考过程（Thought），
+  然后决定执行一个工具调用（Action），
+  接收工具返回的结果（Observation），
+  再基于观察结果进行下一轮思考……
+  如此循环，直到任务完成或达到终止条件。
+
+  标准 ReAct 输出格式：
+  Thought: 我需要先查询当前天气
+  Action: search_weather(city="上海")
+  Observation: 上海今天晴，25°C
+  Thought: 已获得天气信息，可以回答用户了
+  Final Answer: 上海今天晴，气温25°C，适合出行。
+
+why: |
+  纯 LLM 对话（无 ReAct）的两个致命缺陷：
+  1. 无法访问外部信息：只能用训练数据，知识有截止日期
+  2. 无法执行操作：只能说"你应该这样做"，不能真正去做
+
+  ReAct 模式解决了这两个问题：
+  - Reason 步骤：让 LLM 显式推理，减少幻觉，提升可调试性
+  - Act 步骤：调用工具获取实时信息或执行真实操作
+  - Observe 步骤：基于真实结果修正推理，而非凭空想象
+
+mental_model: |
+  ReAct = 侦探破案
+  - 侦探（Agent）不会凭直觉下结论
+  - 每次推理（Thought）："凶手可能在现场留下了指纹"
+  - 采取行动（Action）：去勘查现场，取指纹样本
+  - 观察结果（Observation）："发现了三枚指纹，其中一枚与嫌疑人匹配"
+  - 基于证据再推理，直到得出结论
+  不是靠"感觉"，而是靠"证据循环"得出答案。
+
+how_it_works: |
+  # LangGraph 实现 ReAct Agent
+  from langgraph.prebuilt import create_react_agent
+  from langchain_openai import ChatOpenAI
+
+  llm = ChatOpenAI(model="gpt-4o")
+  tools = [search_web, execute_python, read_file]
+
+  # create_react_agent 封装了完整的 ReAct 循环
+  agent = create_react_agent(llm, tools)
+
+  result = agent.invoke({
+      "messages": [{"role": "user", "content": "分析上海今天的空气质量并给出建议"}]
+  })
+
+  # 内部循环（简化版）：
+  # Thought: 需要查询上海实时 AQI 数据
+  # Action: search_web("上海 AQI 今日")
+  # Observation: 上海 AQI 87，良好
+  # Thought: 数据已获取，可以给出建议
+  # Final Answer: 上海今日 AQI 87（良好）...
+
+termination_conditions:
+  - "LLM 输出 Final Answer（正常完成）"
+  - "达到最大迭代次数（max_iterations，防无限循环）"
+  - "工具调用连续失败 N 次（错误熔断）"
+  - "超时（全局 timeout）"
+
+react_vs_pure_llm:
+  pure_llm:
+    pros: "响应快，无工具调用延迟"
+    cons: "知识有截止日期；无法执行操作；推理过程不透明"
+  react:
+    pros: "可访问实时信息；能执行真实操作；Thought 链路可调试"
+    cons: "多轮工具调用增加延迟；token 用量更高"
+
+best_practices:
+  - "必须设置 max_iterations（建议 10-20）：防止 Agent 无限循环"
+  - "Thought 字段保留在日志中：ReAct 的 Thought 是调试的关键，不要丢弃"
+  - "工具调用失败要有明确的 Observation：'工具调用失败：超时'，让 LLM 能感知并调整"
+  - "Final Answer 之后立即终止：检测到 Final Answer 标记就停止，不要继续循环"
+
+anti_patterns:
+  - pattern: "不设 max_iterations，Agent 进入无限 Thought-Action 循环"
+    consequence: "Token 耗尽或任务永远不完成，生产环境灾难"
+  - pattern: "工具返回空结果时没有 Observation，直接跳过"
+    consequence: "LLM 不知道工具失败了，可能基于错误假设继续推理"
+
+relationships:
+  implemented_by:
+    - id: "KN-C-000020"
+      note: "ReAct Pattern 是 Agent 的核心执行机制"
+    - id: "KN-C-000021"
+      note: "Agent Loop 是 ReAct Pattern 的工程化实现"
+  used_in:
+    - id: "KN-C-000026"
+      note: "LangGraph 的 create_react_agent 封装了 ReAct Pattern"
+  originally_from:
+    - id: "KN-P-000004"
+      note: "ReAct Pattern 源自 ReAct Prompting 技术"
+
+interview_points:
+  - "ReAct Pattern 的 Thought / Action / Observation 三步分别做什么？"
+  - "为什么 ReAct 比纯 LLM 对话更适合 Agent 场景？"
+  - "ReAct 循环的终止条件有哪些？为什么必须设置 max_iterations？"
+  - "ReAct 的 Thought 字段在调试中有什么用？（L2+ 考察）"
+
+exam_points:
+  - "ReAct = Thought（推理）→ Action（工具调用）→ Observation（观察结果）→ 循环"
+  - "必须设置 max_iterations：防止无限循环，建议 10-20 次"
+  - "Thought 是可观测的推理链路，是调试 Agent 行为的核心"
+  - "Final Answer 出现即终止：不继续循环"
+
+one_liner: "ReAct = 侦探破案：先推理（Thought）再行动（Action）再看证据（Observation），基于真实结果循环，而非凭感觉猜。"
+difficulty: intermediate
+
+references:
+  - "ReAct 原论文: Yao et al., 2022 - ReAct: Synergizing Reasoning and Acting in Language Models"
+  - "LangGraph ReAct Agent: https://langchain-ai.github.io/langgraph/reference/prebuilt/"

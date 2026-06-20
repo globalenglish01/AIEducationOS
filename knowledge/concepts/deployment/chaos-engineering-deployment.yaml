@@ -1,0 +1,180 @@
+id: "KN-C-000077"
+type: Practice
+name: "Chaos Engineering for AI（AI 系统混沌工程）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L2-L3"
+tags:
+  - deployment
+  - reliability
+  - chaos-engineering
+  - testing
+
+aliases:
+  - "混沌工程"
+  - "故障演练"
+  - "AI Chaos Testing"
+
+summary: "主动向 AI 系统注入故障（LLM 超时、限流、返回格式错误等），验证降级策略和系统韧性，发现隐藏缺陷，而非等到生产故障发生。"
+
+definition: |
+  Chaos Engineering for AI 是将混沌工程方法论应用于 AI 系统的实践：
+  通过在受控环境中主动制造 LLM API 故障、网络问题、数据异常，
+  验证系统的故障响应机制（超时处理、降级策略、错误恢复）是否真正有效。
+  核心理念：宁可在测试环境中发现降级方案无效，也不要在生产故障时才发现。
+
+why: |
+  AI 系统的故障与传统软件不同：
+  - LLM 输出是概率性的，边界条件下的行为难以预测
+  - 依赖的外部服务（LLM API、向量数据库）有不可避免的故障率
+  - Agent 的多步执行中，中间步骤故障可能产生级联效应
+  没有 Chaos Engineering，降级策略只是"写了代码但从未验证过"。
+  生产故障时才第一次测试降级策略，结果往往是灾难性的。
+
+mental_model: |
+  Chaos Engineering = 消防演练
+  - 不是等真正着火了才知道灭火器在哪
+  - 定期演练：拉响火警（注入故障）→ 看员工（系统）是否按预案行动
+  - 演练结果：发现"原来消防通道被堵了"（降级代码有 bug）
+  - 修复后再演练，直到真正能应对真实火灾
+
+ai_specific_fault_scenarios:
+  - category: "LLM API 故障"
+    scenarios:
+      - fault: "LLM 超时（> 30s）"
+        inject: "mock LLM 在 35s 后才返回"
+        expected: "30s timeout 触发 → 切换备用模型 → 15s 内返回"
+        check: "用户是否得到响应？是否有降级提示？"
+
+      - fault: "429 速率限制"
+        inject: "mock LLM 返回 RateLimitError"
+        expected: "指数退避重试 → 切换备用账号 → 成功返回"
+        check: "最终是否成功？总等待时间是否合理？"
+
+      - fault: "LLM 返回非法 JSON"
+        inject: "mock LLM 返回 '```json { invalid json ```'"
+        expected: "解析容错 → 正则提取 → 返回默认值"
+        check: "是否崩溃？是否有兜底输出？"
+
+  - category: "Agent 异常行为"
+    scenarios:
+      - fault: "Agent 无限循环"
+        inject: "工具调用总是失败，Agent 不断重试"
+        expected: "最大迭代次数（如 10 次）后强制终止"
+        check: "是否真的终止？用了多少 token？"
+
+      - fault: "Agent Token 额度耗尽"
+        inject: "任务执行到一半时 Token Budget 耗尽"
+        expected: "触发降级 → 保存当前进度 → 提示用户"
+        check: "已完成的工作是否保存？用户是否被通知？"
+
+  - category: "RAG / 工具故障"
+    scenarios:
+      - fault: "向量数据库连接断开"
+        inject: "关闭 vector DB 连接"
+        expected: "RAG 失败 → 降级为无 RAG 直接回答 → 标注'基于通用知识'"
+        check: "是否降级？是否告知用户当前是降级状态？"
+
+      - fault: "工具调用超时"
+        inject: "mock tool 挂起 20s 不返回"
+        expected: "10s timeout → 工具调用失败 → Agent 选择替代方案或提示用户"
+        check: "是否超时截断？Agent 是否能继续执行其他步骤？"
+
+  - category: "并发压力"
+    scenarios:
+      - fault: "多用户同时触发 Agent"
+        inject: "100 个并发 Agent 任务同时启动"
+        expected: "队列限流 → 超出并发上限的任务排队 → 所有任务最终完成"
+        check: "是否有 OOM？慢速任务是否影响正常任务？"
+
+implementation: |
+  # 简单的故障注入框架
+  import random
+  from unittest.mock import patch
+
+  class ChaosLLM:
+      """用于混沌测试的 LLM 包装器"""
+
+      def __init__(self, real_llm, fault_rate: float = 0.1):
+          self.real_llm = real_llm
+          self.fault_rate = fault_rate
+          self.fault_types = ["timeout", "rate_limit", "bad_json", "empty_response"]
+
+      def chat(self, messages: list[dict]) -> str:
+          if random.random() < self.fault_rate:
+              fault = random.choice(self.fault_types)
+              return self._inject_fault(fault)
+          return self.real_llm.chat(messages)
+
+      def _inject_fault(self, fault_type: str):
+          if fault_type == "timeout":
+              import time; time.sleep(35)  # 超过 timeout 阈值
+          elif fault_type == "rate_limit":
+              raise RateLimitError("429: Rate limit exceeded")
+          elif fault_type == "bad_json":
+              return "Here is the result: {invalid json content"
+          elif fault_type == "empty_response":
+              return ""
+
+  # 使用示例
+  def test_graceful_degradation():
+      chaos_llm = ChaosLLM(real_llm, fault_rate=0.3)
+      agent = MyAgent(llm=chaos_llm)
+
+      results = []
+      for i in range(100):
+          result = agent.run("分析这个数据集")
+          results.append(result)
+
+      # 验证：即使 30% 的 LLM 调用失败，100% 的任务都应该有响应
+      assert all(r is not None for r in results), "存在任务无响应！"
+      assert all(len(r) > 0 for r in results), "存在空响应！"
+
+chaos_process:
+  - step: "1. 定义稳态（Steady State）"
+    description: "正常情况下系统的可观测指标：P95 延迟 < 5s，成功率 > 99%"
+
+  - step: "2. 提出假设"
+    description: "假设'当 LLM 超时时，系统会在 35s 内返回降级响应'"
+
+  - step: "3. 注入故障"
+    description: "在测试环境中触发 LLM 超时故障"
+
+  - step: "4. 观察结果"
+    description: "记录实际响应时间、错误率、降级触发情况"
+
+  - step: "5. 验证或推翻假设"
+    description: "如果实际行为不符合预期，说明发现了隐藏缺陷"
+
+  - step: "6. 修复并重复"
+    description: "修复缺陷后重新演练，直到行为符合预期"
+
+best_practices:
+  - "先在测试环境演练，再考虑生产灰度演练"
+  - "每次演练覆盖至少 5 个故障场景（LLM 超时/限流/格式错误/Agent 循环/资源耗尽）"
+  - "演练后输出报告：故障场景 × 触发机制 × 实际行为 × 是否符合预期"
+  - "将 Chaos Testing 纳入 CI/CD：每次发布前自动跑一轮故障演练"
+
+relationships:
+  validates:
+    - id: "KN-C-000073"
+      note: "Chaos Engineering 验证 Graceful Degradation 策略是否真正有效"
+  related_to:
+    - id: "KN-C-000053"
+      note: "本节点是 Chaos Engineering 在 deployment 场景的专项实践（SPEC-001 6.12节）"
+
+interview_points:
+  - "Chaos Engineering 在 AI 系统中为什么特别重要？和传统软件有什么不同？"
+  - "列举 5 个 AI 系统特有的混沌测试场景。"
+  - "如何验证降级策略真正有效？描述一次完整的混沌演练流程。"
+  - "混沌测试如何融入 CI/CD 流水线？（L3+ 考察）"
+
+exam_points:
+  - "Chaos Engineering = 主动制造故障，在测试环境验证降级策略，而非等生产故障"
+  - "AI 特有故障场景：LLM 超时 / 429 限流 / 非法 JSON / Agent 循环 / Token 耗尽"
+  - "演练五步：定义稳态 → 假设 → 注入故障 → 观察 → 修复并重复"
+  - "必须输出演练报告：场景 × 预期 × 实际 × 差距"
+
+one_liner: "Chaos Engineering = 主动给 AI 系统制造故障的消防演练，验证降级策略真正有效，而非'理论上应该能降级'。"
+difficulty: advanced

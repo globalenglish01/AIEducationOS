@@ -1,0 +1,166 @@
+id: "KN-B-000002"
+type: Practice
+name: "Max Iteration Guard（最大迭代守卫）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - practice
+  - agent
+  - safety
+  - guard
+
+aliases:
+  - "最大迭代限制"
+  - "Agent Loop Guard"
+  - "无限循环防护"
+
+summary: "为 Agent 设置最大迭代次数上限，防止因 LLM 推理失误或工具失败导致的无限循环，是 Agent 工程的最基础安全措施。"
+
+definition: |
+  Max Iteration Guard 是对 Agent 的 ReAct 循环（或任何 Agent 循环）
+  设置硬性次数上限的工程实践：
+  - 每次 Thought-Action-Observation 计为一次迭代
+  - 当迭代次数达到 max_iterations 时，强制终止 Agent
+  - 返回当前最佳结果或明确的错误信息，而非永久挂起
+
+  与超时（Timeout）的区别：
+  - Timeout：限制总时间
+  - Max Iteration：限制 LLM 调用轮数（与时间无关）
+  两者应同时设置，互为补充。
+
+why: |
+  Agent 进入无限循环的三种常见原因：
+  1. LLM 推理失误：Agent 陷入"以为完成→发现没有→重新尝试"的循环
+  2. 工具持续失败：工具每次都返回错误，但 Agent 不断重试
+  3. 目标不可达：任务本身无法用当前工具完成，Agent 永远无法终止
+
+  没有 Max Iteration Guard 的后果：
+  - Token 成本持续增加（每轮都消耗大量 Token）
+  - 用户等待无响应
+  - 占用服务器资源，影响其他请求
+
+mental_model: |
+  Max Iteration Guard = 赛跑的步数限制
+  - 优秀的马拉松运动员自然会在终点停下
+  - 但如果运动员迷路（推理失误）或受伤（工具失败），
+    没有限制他会一直跑，永远不停
+  - 裁判（Iteration Guard）规定：无论如何，最多跑 X 圈，必须停
+
+implementation: |
+  # 方案1：LangGraph 内置 max_iterations（推荐）
+  from langgraph.prebuilt import create_react_agent
+
+  agent = create_react_agent(
+      llm,
+      tools=tools,
+      # LangGraph 通过 recursion_limit 控制（每步 +2，实际 iteration = limit / 2）
+  )
+
+  config = {"recursion_limit": 30}  # 约 15 次实际 Agent 迭代
+  result = agent.invoke({"messages": [user_message]}, config=config)
+
+  # 方案2：自定义 Agent 循环的 Max Iteration Guard
+  async def run_agent_with_guard(
+      agent_fn,
+      initial_state: dict,
+      max_iterations: int = 15,
+      timeout: float = 300.0
+  ) -> dict:
+      state = initial_state
+      iteration = 0
+
+      async with asyncio.timeout(timeout):
+          while iteration < max_iterations:
+              iteration += 1
+
+              # 执行一轮 Agent 推理
+              action = await agent_fn(state)
+
+              # 终止条件检查
+              if action.type == "final_answer":
+                  return {
+                      "result": action.content,
+                      "iterations": iteration,
+                      "terminated_by": "agent"
+                  }
+
+              # 执行工具调用
+              observation = await execute_tool(action)
+              state = update_state(state, action, observation)
+
+          # 达到最大迭代次数
+          return {
+              "result": get_best_partial_result(state),
+              "iterations": iteration,
+              "terminated_by": "max_iterations",
+              "warning": f"Agent reached max iterations ({max_iterations})"
+          }
+
+  # 方案3：连续失败熔断（更细粒度的保护）
+  class AgentLoopGuard:
+      def __init__(self, max_iterations: int = 15, max_consecutive_errors: int = 3):
+          self.max_iterations = max_iterations
+          self.max_consecutive_errors = max_consecutive_errors
+          self.iterations = 0
+          self.consecutive_errors = 0
+
+      def check(self, last_result_was_error: bool = False) -> None:
+          """每次迭代前调用，超限则抛出异常"""
+          self.iterations += 1
+
+          if last_result_was_error:
+              self.consecutive_errors += 1
+          else:
+              self.consecutive_errors = 0
+
+          if self.iterations > self.max_iterations:
+              raise MaxIterationsExceeded(f"Reached {self.max_iterations} iterations")
+
+          if self.consecutive_errors >= self.max_consecutive_errors:
+              raise ConsecutiveErrorsExceeded(f"Tool failed {self.consecutive_errors} times in a row")
+
+recommended_limits:
+  simple_qa: "5-10 次（简单问答不应该需要很多轮）"
+  research_task: "10-20 次（研究任务需要多次搜索）"
+  coding_task: "15-25 次（代码任务可能需要多次修改调试）"
+  complex_agent: "20-30 次（复杂多步骤任务的上限）"
+  note: "超过 30 次几乎总是出问题的信号，应该重新审视任务设计"
+
+best_practices:
+  - "max_iterations 和 timeout 同时设置：两个维度共同保护"
+  - "达到上限时返回部分结果而非空：'已完成 X 步，最终状态为 Y'"
+  - "日志记录每次迭代：方便事后分析 Agent 是否浪费在低价值循环上"
+  - "根据任务类型调整上限：不要用同一个值套所有 Agent"
+
+anti_patterns:
+  - pattern: "max_iterations 设得极高（100+）以'确保任务完成'"
+    consequence: "实际上是没有限制，Token 成本失控，出问题时损失很大"
+  - pattern: "只设 max_iterations 不设 timeout"
+    consequence: "如果每次迭代耗时很长（工具慢），即使迭代次数少也可能挂很久"
+  - pattern: "达到上限后抛异常且不返回任何结果"
+    consequence: "用户看到报错，但实际上 Agent 可能已经完成了大部分有价值的工作"
+
+relationships:
+  part_of:
+    - id: "KN-A-000001"
+      note: "Max Iteration Guard 是 Agent Harness 的核心组件之一"
+  related_to:
+    - id: "KN-P-000005"
+      note: "ReAct Pattern 的每个 Thought-Action-Observation 循环需要 Max Iteration Guard 控制"
+
+interview_points:
+  - "为什么 Agent 必须设置 max_iterations？常见的无限循环原因是什么？"
+  - "max_iterations 和 timeout 的区别是什么？为什么两者都需要设置？"
+  - "Agent 达到 max_iterations 后应该怎么处理？直接报错还是返回部分结果？"
+  - "不同类型的 Agent 任务应该设置什么量级的 max_iterations？（L2 判断题）"
+
+exam_points:
+  - "Max Iteration Guard：硬性循环次数上限，防止 Agent 无限运行"
+  - "与 Timeout 互补：Iteration 限轮数，Timeout 限总时间，两者同时设置"
+  - "达到上限：返回部分结果 + 警告，不要直接报错丢弃所有进度"
+  - "推荐范围：简单任务 5-10，复杂任务 20-30，超过 30 需重新设计"
+
+one_liner: "Max Iteration Guard = 赛跑步数限制：Agent 最多跑 N 轮，超出就停止返回最佳中间结果，与 Timeout 共同防止 Agent 无限循环消耗资源。"
+difficulty: beginner

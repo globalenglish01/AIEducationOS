@@ -1,0 +1,150 @@
+id: "KN-P-000007"
+type: Pattern
+name: "Pipeline Pattern（串行 Agent 流水线）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - agent
+  - pattern
+  - workflow
+  - multi-agent
+
+aliases:
+  - "Agent Pipeline"
+  - "串行流水线"
+  - "顺序 Agent 链"
+
+summary: "多个 Agent 按固定顺序依次执行，前一个 Agent 的输出作为下一个的输入，适合流程固定、步骤明确的任务。"
+
+definition: |
+  Pipeline Pattern 是多 Agent 协作的最简单形式：
+  将一个复杂任务拆解为固定顺序的步骤序列，
+  每个步骤由一个专职 Agent（或 LLM 调用）处理，
+  输出传递给下一步，形成流水线。
+
+  特点：
+  - 顺序固定：步骤 A → B → C，不可跳过或重排
+  - 单向流动：数据从前向后流，通常不回溯
+  - 无动态调度：不需要 Supervisor 做实时决策
+
+why: |
+  很多 AI 任务天然是顺序的：
+  - 文章生成：大纲 → 草稿 → 润色 → 审核
+  - 数据处理：抓取 → 清洗 → 分析 → 报告
+  - 代码审查：读取代码 → 分析问题 → 生成建议 → 格式化输出
+
+  Pipeline 是这类任务的最自然实现：
+  - 比单 Agent 更清晰：每步职责明确，容易调试
+  - 比 Supervisor-Worker 更简单：不需要动态调度逻辑
+  - 每步可用不同模型：根据任务复杂度选择合适的 LLM
+
+mental_model: |
+  Pipeline = 工厂流水线
+  - 汽车工厂：焊接 → 喷漆 → 组装 → 质检
+  - 每道工序专注一件事，按固定顺序进行
+  - 上一道工序的成品是下一道的原料
+  - 不需要"总工程师"实时调度，流程本身就是调度
+
+how_it_works: |
+  # 方案1：简单函数链（无框架）
+  def research_agent(topic: str) -> str:
+      """步骤1：研究主题，返回原始资料"""
+      return llm.chat([
+          {"role": "system", "content": "你是研究员，负责收集资料"},
+          {"role": "user", "content": f"收集关于 {topic} 的最新信息"}
+      ])
+
+  def writer_agent(research: str) -> str:
+      """步骤2：基于资料写草稿"""
+      return llm.chat([
+          {"role": "system", "content": "你是技术作家，负责写清晰的文章"},
+          {"role": "user", "content": f"基于以下资料写一篇文章：\n{research}"}
+      ])
+
+  def reviewer_agent(draft: str) -> str:
+      """步骤3：审核并改进草稿"""
+      return llm.chat([
+          {"role": "system", "content": "你是编辑，负责提升文章质量"},
+          {"role": "user", "content": f"审核并改进这篇文章：\n{draft}"}
+      ])
+
+  # Pipeline 执行
+  def run_article_pipeline(topic: str) -> str:
+      research = research_agent(topic)
+      draft = writer_agent(research)
+      final = reviewer_agent(draft)
+      return final
+
+  # 方案2：LangGraph Pipeline（带状态管理）
+  from langgraph.graph import StateGraph, START, END
+  from typing import TypedDict
+
+  class PipelineState(TypedDict):
+      topic: str
+      research: str
+      draft: str
+      final_article: str
+
+  graph = StateGraph(PipelineState)
+  graph.add_node("research", research_node)
+  graph.add_node("write", write_node)
+  graph.add_node("review", review_node)
+
+  graph.add_edge(START, "research")
+  graph.add_edge("research", "write")
+  graph.add_edge("write", "review")
+  graph.add_edge("review", END)
+
+  pipeline = graph.compile()
+
+pipeline_vs_supervisor:
+  pipeline:
+    when: "任务步骤固定，顺序明确，不需要根据中间结果调整"
+    example: "文章生成：大纲→草稿→润色（顺序永远不变）"
+    complexity: "低，易于实现和调试"
+  supervisor_worker:
+    when: "任务复杂，需要根据中间结果动态调整执行路径"
+    example: "数据分析：可能需要多轮搜索，分析失败需要重试"
+    complexity: "高，Supervisor 本身需要复杂逻辑"
+
+best_practices:
+  - "每个 Agent 的 System Prompt 只描述当前步骤的职责，不包含整体任务"
+  - "步骤间传递结构化数据（JSON/TypedDict）而非纯文本，减少解析错误"
+  - "为每个步骤单独设置超时：避免某一步阻塞整个 Pipeline"
+  - "关键步骤后做质量检查：通过 Checkpoint 确认输出满足要求再继续"
+
+anti_patterns:
+  - pattern: "把所有逻辑放进一个超大 Agent（单步 Pipeline）"
+    consequence: "Context 过长，LLM 难以聚焦；无法分步调试"
+  - pattern: "步骤间传递整个上下文历史（而非只传当前步骤需要的数据）"
+    consequence: "Context Window 快速膨胀，后续步骤成本急剧增加"
+  - pattern: "没有步骤超时控制"
+    consequence: "某一步骤挂起（如 LLM 超时）导致整个 Pipeline 永久阻塞"
+
+relationships:
+  simpler_than:
+    - id: "KN-P-000006"
+      note: "Pipeline 是固定顺序，Supervisor-Worker 是动态调度，后者更复杂"
+  implemented_with:
+    - id: "KN-C-000026"
+      note: "LangGraph 的 add_edge 方法实现 Pipeline 的顺序连接"
+  uses:
+    - id: "KN-C-000027"
+      note: "Pipeline 中的 Checkpoint 支持断点续跑，避免失败时从头重来"
+
+interview_points:
+  - "Pipeline Pattern 和 Supervisor-Worker 各自适合什么场景？"
+  - "如何避免 Pipeline 中某一步的输出过大导致后续步骤 Context 溢出？"
+  - "Pipeline 中间某一步失败，如何做到不从头重跑？"
+  - "什么情况下应该把 Pipeline 改成 Supervisor-Worker？（L2+ 考察判断力）"
+
+exam_points:
+  - "Pipeline = 固定顺序，单向流动，前步输出是后步输入"
+  - "适合场景：步骤固定、不需要动态调度（文章生成、数据处理流程）"
+  - "步骤间传结构化数据，不传完整历史：控制 Context 膨胀"
+  - "配合 Checkpoint：中间步骤持久化，失败时从断点恢复而非重头"
+
+one_liner: "Pipeline = 工厂流水线：多个专职 Agent 按固定顺序依次处理，前步产出是后步原料，简单清晰，适合流程固定的任务。"
+difficulty: beginner

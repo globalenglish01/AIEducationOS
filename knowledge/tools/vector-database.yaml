@@ -1,0 +1,177 @@
+id: "KN-T-000002"
+type: Tool
+name: "向量数据库（FAISS / Chroma / Pinecone）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - tool
+  - rag
+  - vector
+  - search
+
+aliases:
+  - "向量数据库"
+  - "Vector Store"
+  - "FAISS"
+  - "Chroma"
+  - "Pinecone"
+
+summary: "存储和检索向量（Embedding）的专用数据库，是 RAG 系统的核心存储组件，支持高效的近似最近邻搜索（ANN）。"
+
+definition: |
+  向量数据库是专门存储和检索高维向量的数据库：
+  - 输入：文本/图片通过 Embedding 模型转换成的向量（如 1536 维）
+  - 存储：向量 + 原始文本（metadata）
+  - 查询：给定查询向量，返回最相似的 Top-K 向量（ANN 搜索）
+
+  三种常见选择：
+  - FAISS（Facebook）：纯内存，极速，适合单机研究和小规模生产
+  - Chroma：轻量本地向量数据库，适合开发调试和中小规模部署
+  - Pinecone：全托管云服务，生产首选，无需运维
+
+why: |
+  RAG 系统的核心挑战：从海量文档中快速找到与查询最相关的片段。
+  传统数据库（MySQL/Redis）无法做语义相似度搜索——
+  "人工智能"和"AI"在字符串层面完全不同，但语义相同。
+  向量数据库用余弦相似度在向量空间中找语义相近的文档，
+  是实现 RAG 语义检索的唯一合理方案。
+
+mental_model: |
+  向量数据库 = 语义地图
+  - 文档向量化：把"什么是机器学习？"变成地图上的一个坐标点
+  - 存储：把所有文档的坐标点标在地图上
+  - 查询：用户问"AI 学习原理是什么？" → 转成坐标 → 找地图上最近的点
+  距离近的点 = 语义相近的文档，即使用词完全不同
+
+faiss_usage: |
+  # FAISS：本地内存向量库（适合原型和中小规模）
+  import faiss
+  import numpy as np
+  from langchain_openai import OpenAIEmbeddings
+  from langchain_community.vectorstores import FAISS
+
+  embeddings = OpenAIEmbeddings()
+  texts = ["什么是机器学习", "深度学习入门", "神经网络原理"]
+
+  # 构建 FAISS 向量库
+  vectorstore = FAISS.from_texts(texts, embeddings)
+
+  # 相似度搜索
+  results = vectorstore.similarity_search("AI 学习", k=2)
+  # [Document("什么是机器学习"), Document("深度学习入门")]
+
+  # 持久化（内存→磁盘）
+  vectorstore.save_local("faiss_index")
+
+  # 加载
+  loaded = FAISS.load_local("faiss_index", embeddings)
+
+chroma_usage: |
+  # Chroma：本地轻量向量数据库（适合开发和中小规模部署）
+  from langchain_community.vectorstores import Chroma
+  from langchain_openai import OpenAIEmbeddings
+
+  embeddings = OpenAIEmbeddings()
+
+  # 持久化 Chroma（自动存储，重启不丢数据）
+  vectorstore = Chroma(
+      collection_name="knowledge_base",
+      embedding_function=embeddings,
+      persist_directory="./chroma_db"   # 持久化路径
+  )
+
+  # 批量添加文档
+  vectorstore.add_texts(
+      texts=["文档内容1", "文档内容2"],
+      metadatas=[{"source": "doc1.pdf"}, {"source": "doc2.pdf"}]
+  )
+
+  # 相似度搜索 + 分数
+  results = vectorstore.similarity_search_with_score("查询内容", k=3)
+  # [(doc, 0.92), (doc, 0.87), (doc, 0.81)]
+
+  # 元数据过滤
+  results = vectorstore.similarity_search(
+      "查询内容",
+      filter={"source": "doc1.pdf"}   # 只搜索特定来源的文档
+  )
+
+pinecone_usage: |
+  # Pinecone：云托管向量数据库（生产推荐）
+  from pinecone import Pinecone
+  from langchain_pinecone import PineconeVectorStore
+  from langchain_openai import OpenAIEmbeddings
+
+  pc = Pinecone(api_key="...")
+  # 创建索引（只需一次）
+  pc.create_index(
+      name="knowledge-base",
+      dimension=1536,              # OpenAI embedding 维度
+      metric="cosine",             # 相似度度量
+      spec=ServerlessSpec(cloud="aws", region="us-east-1")
+  )
+
+  embeddings = OpenAIEmbeddings()
+  vectorstore = PineconeVectorStore(
+      index_name="knowledge-base",
+      embedding=embeddings
+  )
+  vectorstore.add_texts(texts)
+  results = vectorstore.similarity_search("查询", k=5)
+
+comparison:
+  faiss:
+    type: "纯内存库（非真正数据库）"
+    persistence: "需要手动 save/load"
+    scale: "单机，100万向量以内"
+    cost: "免费"
+    when: "研究原型、单机离线处理"
+  chroma:
+    type: "本地向量数据库"
+    persistence: "自动（persist_directory）"
+    scale: "中等，百万量级"
+    cost: "免费"
+    when: "本地开发、中小规模部署"
+  pinecone:
+    type: "全托管云服务"
+    persistence: "自动"
+    scale: "无限（自动扩展）"
+    cost: "按使用付费"
+    when: "生产环境、大规模、无运维能力"
+
+best_practices:
+  - "Chunk 大小选 300-500 tokens：太大检索精度低，太小上下文不足"
+  - "Chunk overlap 设 10-20%：防止关键信息在切割处丢失"
+  - "存储原始文本和 metadata：metadata 用于过滤（来源/时间/作者）"
+  - "定期重建索引：Embedding 模型升级时，旧向量与新查询向量不兼容"
+
+anti_patterns:
+  - pattern: "把整篇文档作为一个 Chunk 向量化"
+    consequence: "向量包含过多信息，检索精度极低（什么都沾边，什么都不精确）"
+  - pattern: "生产环境用 FAISS 不做持久化"
+    consequence: "重启后向量库清空，所有数据丢失"
+
+relationships:
+  used_in:
+    - id: "KN-C-000033"
+      note: "向量数据库是 RAG 系统的核心存储组件"
+  accessed_via:
+    - id: "KN-F-000001"
+      note: "LangChain 提供 FAISS/Chroma/Pinecone 的统一抽象接口"
+
+interview_points:
+  - "向量数据库和传统数据库的本质区别是什么？"
+  - "FAISS、Chroma、Pinecone 各适合什么场景？"
+  - "Chunk 大小如何影响 RAG 系统的检索质量？"
+  - "为什么升级 Embedding 模型后需要重建索引？（L2+ 考察）"
+
+exam_points:
+  - "向量数据库 = 语义搜索：余弦相似度找语义最近邻，而非字符串匹配"
+  - "三选：FAISS（本地研究）/ Chroma（本地开发）/ Pinecone（生产云服务）"
+  - "Chunk 大小：300-500 tokens，overlap 10-20%"
+  - "模型升级要重建索引：新旧 Embedding 不在同一向量空间"
+
+one_liner: "向量数据库 = 语义地图：文档变坐标存起来，查询时找最近的坐标点，RAG 系统的检索引擎，FAISS/Chroma 本地开发，Pinecone 生产。"
+difficulty: beginner

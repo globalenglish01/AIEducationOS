@@ -1,0 +1,168 @@
+id: "KN-C-000076"
+type: Tool
+name: "Ollama（本地模型部署）"
+version: "1.0"
+last_updated: "2026-06-20"
+status: active
+level: "L1-L2"
+tags:
+  - deployment
+  - local-model
+  - ollama
+  - privacy
+
+aliases:
+  - "本地 LLM"
+  - "Private LLM"
+  - "本地部署大模型"
+
+summary: "在本地机器上运行开源 LLM 的工具，一条命令即可部署 Llama、Mistral、DeepSeek 等模型，数据不离开本地，适合隐私敏感场景。"
+
+definition: |
+  Ollama 是一个本地 LLM 运行时工具，提供：
+  - 模型下载：从 Ollama Hub 一键拉取开源模型
+  - 本地推理：在本机 CPU/GPU 运行 LLM，数据不发送到云端
+  - OpenAI 兼容 API：提供与 OpenAI API 格式完全兼容的本地端点
+  - 模型量化：自动选择适合当前硬件的量化版本（Q4、Q8）
+  核心价值：把大模型运行在自己的硬件上，数据完全可控，成本固定。
+
+why: |
+  云端 LLM API（OpenAI、Claude）的三个约束：
+  1. 数据隐私：代码、合同、客户数据发给第三方，有合规风险
+  2. 成本变动：按 Token 计费，用量大时成本高且不可预测
+  3. 网络依赖：离线或网络不稳定时无法使用
+
+  Ollama 解决了上述三个问题：
+  - 数据不离开本地（隐私合规）
+  - 一次硬件投入，推理成本接近零（成本可控）
+  - 离线可用（不依赖网络）
+
+mental_model: |
+  Ollama = 自建咖啡机 vs 去星巴克
+
+  去星巴克（云端 API）：
+  - 方便，质量稳定（OpenAI/Claude 服务成熟）
+  - 每杯要钱（Token 计费）
+  - 需要出门（联网）
+  - 你的配方可能被记录（数据发给第三方）
+
+  自建咖啡机（Ollama）：
+  - 一次购买咖啡机和豆子（硬件+模型下载）
+  - 每杯成本约等于零（电费可忽略）
+  - 不需要出门（离线可用）
+  - 配方完全保密（数据不离开）
+
+  代价：自建咖啡机质量不如专业咖啡师（开源模型弱于 GPT-4o）
+
+quick_start: |
+  # 安装 Ollama
+  curl -fsSL https://ollama.ai/install.sh | sh   # Linux/Mac
+  # Windows: 下载安装包 https://ollama.ai/download
+
+  # 拉取并运行模型
+  ollama pull llama3.2          # 下载 Llama 3.2（3B）
+  ollama pull deepseek-r1:7b    # 下载 DeepSeek-R1（7B）
+  ollama pull qwen2.5:14b       # 下载 Qwen 2.5（14B）
+
+  # 命令行对话
+  ollama run llama3.2
+
+  # Python 调用（OpenAI 兼容接口）
+  from openai import OpenAI
+
+  client = OpenAI(
+      base_url="http://localhost:11434/v1",
+      api_key="ollama"  # 随意填写，本地无需验证
+  )
+
+  response = client.chat.completions.create(
+      model="llama3.2",
+      messages=[{"role": "user", "content": "解释什么是 RAG"}]
+  )
+  print(response.choices[0].message.content)
+
+model_selection_guide:
+  - vram: "4GB 显存 / 8GB 内存"
+    recommended: ["llama3.2:3b-q4", "phi3:mini", "gemma2:2b"]
+    use_case: "基础对话、简单问答"
+
+  - vram: "8GB 显存 / 16GB 内存"
+    recommended: ["llama3.1:8b", "deepseek-r1:7b", "qwen2.5:7b"]
+    use_case: "代码生成、文档分析"
+
+  - vram: "16GB 显存 / 32GB 内存"
+    recommended: ["llama3.1:70b-q4", "deepseek-r1:14b", "qwen2.5:14b"]
+    use_case: "复杂推理、接近 GPT-4o-mini 水平"
+
+  - vram: "无 GPU / 纯 CPU"
+    recommended: ["llama3.2:3b-q4", "phi3:mini-q4"]
+    note: "CPU 推理速度慢（约 5-20 tokens/s），但可用"
+
+quantization_explained: |
+  模型量化（Quantization）是压缩模型精度以减少内存占用的技术：
+
+  原始精度 FP32（32位浮点）→ 占用最大，质量最高
+  FP16（16位）         → 减半
+  Q8（8位整数）        → 原来的 1/4，质量轻微下降
+  Q4（4位整数）        → 原来的 1/8，质量有一定下降，但速度快、内存省
+
+  实际经验：
+  - Q4 对于大多数应用场景质量足够
+  - Q8 在质量要求高时首选
+  - 同等 VRAM 下，Q4 可以运行更大的模型（7B Q4 ≈ 4GB）
+
+local_vs_cloud:
+  local_ollama:
+    pros:
+      - "数据完全私有，不发送给第三方"
+      - "推理成本接近零（只有电费）"
+      - "离线可用，延迟低（局域网）"
+      - "无速率限制"
+    cons:
+      - "模型能力弱于 GPT-4o / Claude Opus"
+      - "需要自行维护（更新、监控）"
+      - "初始硬件投入（GPU 成本）"
+      - "复杂推理任务质量不稳定"
+  cloud_api:
+    pros:
+      - "最强模型能力（GPT-4o, Claude Opus）"
+      - "无需维护，随时可用"
+      - "弹性扩展，处理突发流量"
+    cons:
+      - "按 Token 计费，大用量成本高"
+      - "数据离开本地（隐私风险）"
+      - "依赖网络，有速率限制"
+
+best_practices:
+  - "开发测试用 Ollama，生产环境考虑云端 API：本地模型用于快速迭代，线上用更强模型"
+  - "选择适合显存的量化版本：宁可选更小的模型，也不要超出显存导致 OOM"
+  - "配置 Ollama 的上下文长度（num_ctx）：默认 2048，RAG 场景建议设 8192+"
+  - "用 LiteLLM 或 LangChain 做模型抽象：方便随时切换本地/云端模型"
+
+anti_patterns:
+  - pattern: "在生产环境部署 Ollama 处理高并发请求"
+    consequence: "Ollama 单线程推理，并发能力有限，高并发时队列积压"
+  - pattern: "用 Q4 量化模型做精密数学或复杂逻辑推理"
+    consequence: "量化损失在复杂推理任务上被放大，错误率明显上升"
+
+relationships:
+  related_to:
+    - id: "KN-C-000075"
+      note: "Fine-tuned 模型可以通过 Ollama 在本地部署和运行"
+    - id: "KN-C-000073"
+      note: "Ollama 可作为云端 LLM 不可用时的降级方案"
+
+interview_points:
+  - "什么场景下应该用本地模型（Ollama）而非云端 API？"
+  - "模型量化（Q4/Q8）是什么？对模型能力有什么影响？"
+  - "如何在代码中切换本地 Ollama 和 OpenAI 云端 API？"
+  - "Ollama 本地部署在高并发生产环境的局限性是什么？（L3+ 考察）"
+
+exam_points:
+  - "Ollama 三大优势：数据私有 / 成本近零 / 离线可用"
+  - "量化：Q4 占 FP32 的 1/8 内存，质量略降但多数场景够用"
+  - "OpenAI 兼容接口：base_url=localhost:11434/v1，代码几乎不变"
+  - "适合开发/隐私场景，生产高并发用 VLLM 或云端 API"
+
+one_liner: "Ollama = 把 LLM 装进自家服务器，数据不离开，成本近零，一条命令 ollama run llama3.2 即可开始。"
+difficulty: beginner
