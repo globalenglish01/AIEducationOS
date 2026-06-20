@@ -13,11 +13,12 @@ from typing import Optional
 import yaml
 
 KNOWLEDGE_ROOT = Path(__file__).parent.parent / "knowledge" / "concepts"
+KNOWLEDGE_BASE = Path(__file__).parent.parent / "knowledge"
 
 
 def load_node(node_id: str) -> dict:
-    """按 ID 加载知识节点（遍历所有子目录）。"""
-    for yaml_file in KNOWLEDGE_ROOT.rglob("*.yaml"):
+    """按 ID 加载知识节点（遍历 knowledge/ 所有子目录）。"""
+    for yaml_file in KNOWLEDGE_BASE.rglob("*.yaml"):
         try:
             data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
             if data and data.get("id") == node_id:
@@ -47,7 +48,7 @@ def load_nodes_by_ids(node_ids: list[str]) -> list[dict]:
     """批量加载指定 ID 列表的节点（保持顺序）。"""
     id_set = set(node_ids)
     found: dict[str, dict] = {}
-    for yaml_file in KNOWLEDGE_ROOT.rglob("*.yaml"):
+    for yaml_file in KNOWLEDGE_BASE.rglob("*.yaml"):
         if not id_set - set(found.keys()):
             break
         try:
@@ -112,7 +113,7 @@ def build_chapter_context(primary_node: dict, related_nodes: Optional[list[dict]
 def list_all_nodes() -> list[dict]:
     """列出所有知识节点的摘要信息。"""
     nodes = []
-    for yaml_file in sorted(KNOWLEDGE_ROOT.rglob("*.yaml")):
+    for yaml_file in sorted(KNOWLEDGE_BASE.rglob("*.yaml")):
         try:
             data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
             if data and data.get("id"):
