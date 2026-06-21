@@ -1535,6 +1535,9 @@ def wait_for_answer(page, timeout: int = 300, stable_secs: int = STABLE_SECS,
                 cur_count = get_assistant_msg_count(page)
                 if cur_count < min_msg_count:
                     elapsed = time.time() - start
+                    if elapsed > timeout:
+                        print(f"  [等待新消息] 超时（{int(elapsed)}s），ChatGPT 未响应，返回空")
+                        return "CHATGPT_ERROR"
                     if int(elapsed) % 30 == 0 and elapsed > 5:
                         print(f"  [等待新消息] 当前{cur_count}条，需{min_msg_count}条，已等{int(elapsed)}s")
                     time.sleep(2)
