@@ -539,9 +539,27 @@ def deploy_backend(log_fn=None) -> bool:
             return False
         log("  [Deploy] ✅ 代码已推送到 GitHub")
 
-    # ── Step 2: EC2 git pull + restart backend ───────────────────────────────
-    log(f"  [Deploy] SSH {ssh_host}: git pull + restart backend ...")
-    remote_cmd = f"cd {remote_dir} && git pull --ff-only origin main && docker compose restart backend"
+    # ── Step 2: 重建 aios-bible.json 并 docker cp 进 volume ──────────────────
+    bible_src = STUDYATHENA_ROOT / "frontend" / "public" / "data" / "aios-bible.json"
+    aios_root = Path(__file__).resolve().parent
+    try:
+        import importlib.util as _ilu, sys as _sys
+        spec = _ilu.spec_from_file_location("build_aios_bible", aios_root / "build_aios_bible.py")
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.build(dry_run=False)
+        log("  [Deploy] ✅ aios-bible.json 已重建")
+    except Exception as e:
+        log(f"  [Deploy] ⚠️  aios-bible.json 重建失败（跳过）: {e}")
+
+    # ── Step 3: EC2 git pull + docker cp aios-bible.json + restart backend ──
+    log(f"  [Deploy] SSH {ssh_host}: git pull + cp aios-bible.json + restart backend ...")
+    remote_cmd = (
+        f"cd {remote_dir} && git pull --ff-only origin main "
+        f"&& docker cp {remote_dir}/frontend/public/data/aios-bible.json "
+        f"studyathena-frontend:/app/public/data/aios-bible.json "
+        f"&& docker compose restart backend"
+    )
     try:
         r = subprocess.run(
             ["ssh", ssh_host, remote_cmd],
@@ -551,7 +569,7 @@ def deploy_backend(log_fn=None) -> bool:
         if r.returncode != 0:
             log(f"  [Deploy] ❌ EC2 操作失败:\n{r.stderr[:300]}")
             return False
-        log("  [Deploy] ✅ EC2 已更新，backend 重启完成，新章节已上线！")
+        log("  [Deploy] ✅ EC2 已更新，新章节已上线！")
         return True
     except subprocess.TimeoutExpired:
         log("  [Deploy] ❌ SSH 超时")
