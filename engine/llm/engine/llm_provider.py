@@ -203,7 +203,7 @@ class ChatGPTBrowserLLM(BaseLLM):
                 return
             except Exception as e:
                 print(f"  [Browser] ChatGPT 页面失效（{e}），重新打开浏览器...")
-                self.shutdown()
+                self._reset_browser()
 
         from playwright.sync_api import sync_playwright
 
@@ -235,7 +235,7 @@ class ChatGPTBrowserLLM(BaseLLM):
                                            ("closed", "target", "context", "cdp 连接断开"))
                         if is_cdp_error and attempt == 0:
                             print(f"  🔄 ChatGPT 浏览器连接断开，重启后重试... ({err_str[:80]})")
-                            self.shutdown()
+                            self._reset_browser()
                             continue
                         raise
                 return ""
@@ -337,7 +337,7 @@ class ChatGPTBrowserLLM(BaseLLM):
                         is_cdp = any(kw in err_str.lower() for kw in ("closed", "target", "context", "cdp"))
                         if is_cdp and attempt == 0:
                             print(f"  🔄 ChatGPT 连接断开，重启后重试...")
-                            self.shutdown()
+                            self._reset_browser()
                             continue
                         raise
             return ""
@@ -463,7 +463,7 @@ class ChatGPTBrowserLLM(BaseLLM):
                                        ("closed", "target", "context", "cdp 连接断开"))
                     if is_cdp_error and attempt == 0:
                         print(f"  🔄 ChatGPT 连接断开，重启后重试... ({err_str[:80]})")
-                        self.shutdown()  # 彻底关闭 playwright，避免 asyncio loop 残留
+                        self._reset_browser()  # 仅重置浏览器，不停止 worker 线程
                         continue
                     raise
         return ""
@@ -512,31 +512,33 @@ class ChatGPTBrowserLLM(BaseLLM):
         except Exception:
             pass
 
+    def _reset_browser(self) -> None:
+        """仅关闭浏览器进程，不停止 worker 线程（在 worker 线程内调用）。"""
+        try:
+            if self._ctx:
+                self._ctx.close()
+        except Exception:
+            pass
+        try:
+            if self._chrome_proc:
+                self._chrome_proc.terminate()
+                try:
+                    self._chrome_proc.wait(timeout=8)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            if self._playwright:
+                self._playwright.stop()
+        except Exception:
+            pass
+        self._page = self._ctx = self._playwright = self._chrome_proc = None
+
     def shutdown(self) -> None:
         """真正关闭浏览器进程（程序退出时调用）。"""
-        def _do():
-            try:
-                if self._ctx:
-                    self._ctx.close()
-            except Exception:
-                pass
-            try:
-                if self._chrome_proc:
-                    self._chrome_proc.terminate()
-                    try:
-                        self._chrome_proc.wait(timeout=8)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-            try:
-                if self._playwright:
-                    self._playwright.stop()
-            except Exception:
-                pass
-            self._page = self._ctx = self._playwright = self._chrome_proc = None
         try:
-            self._run_in_worker(_do, timeout=30)
+            self._run_in_worker(self._reset_browser, timeout=30)
         except Exception:
             pass
         # 停止 worker 线程
@@ -585,7 +587,7 @@ class DeepSeekBrowserLLM(BaseLLM):
                 return
             except Exception as e:
                 print(f"  [Browser] DeepSeek 页面失效（{e}），重新打开浏览器...")
-                self.shutdown()
+                self._reset_browser()
 
         from playwright.sync_api import sync_playwright
 

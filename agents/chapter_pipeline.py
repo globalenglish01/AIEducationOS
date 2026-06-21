@@ -266,7 +266,6 @@ class ChapterPipeline:
                             chapter_content = new_content or chapter_content
                             continue
                         print(f"  [Pipeline] 基于上一版本（{prev_score}分）和评审反馈修改...")
-                        import asyncio as _aio; _aio.set_event_loop(None)
                         new_content = _apply_improvements(
                             writer, primary_node, research_data,
                             chapter_content,  # 上一轮的章节内容（非空）
@@ -326,9 +325,7 @@ class ChapterPipeline:
                     print(f"  [Pipeline] 分数 {score}，在当前对话内细化改进后保存...")
                     issues = review_result.get("critical_issues", [])
                     suggestions = review_result.get("improvement_suggestions", [])
-                    # Reviewer 子进程结束后可能残留 asyncio loop，清理后再调 Playwright Sync API
-                    import asyncio as _aio; _aio.set_event_loop(None)
-                    # 改进在同一对话内进行，不开新对话
+                    # 改进在独立线程中进行（_apply_improvements内部处理asyncio隔离）
                     improved = _apply_improvements(
                         writer, primary_node, research_data,
                         chapter_content, chapter_num, related_nodes,
@@ -511,48 +508,47 @@ def _apply_improvements(
 
 直接输出修改后的完整 Markdown 章节内容，不要有任何说明文字。严禁只输出部分内容或说明改了什么。"""
 
-    # Playwright page 对象只能在创建它的线程（主线程）里调用
-    # 直接在主线程调用，但先清除 Reviewer 子线程可能遗留的 asyncio loop
-    import asyncio as _asyncio
-    try:
-        _asyncio.set_event_loop(None)
-    except Exception:
-        pass
-
+    # Playwright Sync API 不能在有 asyncio loop 的线程里调用。
+    # Reviewer 子进程结束后会污染主线程的 loop 状态。
+    # 解决方案：在全新的 daemon 线程里运行，新线程天然没有 asyncio loop。
+    import threading as _threading
     import re as _re
 
     def _count_parts(text: str) -> int:
         return len(_re.findall(r'(?:^|\n)(?:##\s*)?(?:\*\*)?Part\s*\d+', text))
 
-    try:
-        if hasattr(writer.llm, "chat_multipart"):
-            response = writer.llm.chat_multipart(WRITER_SYSTEM_PROMPT, improve_message)
-        else:
-            response = writer.llm.chat([
-                {"role": "system", "content": WRITER_SYSTEM_PROMPT},
-                {"role": "user", "content": improve_message},
-            ])
-        # 若返回RATE_LIMITED或内容不足15个Part，改用writer.write()批量完整重写
-        if not response or response.strip() in ("RATE_LIMITED", "CHATGPT_ERROR") or \
-                len(response.strip()) < 2000 or _count_parts(response) < 15:
-            parts_found = _count_parts(response) if response else 0
-            print(f"  [Pipeline] 改进版本不完整（{len(response) if response else 0}字符，{parts_found}/15 Parts），改用writer.write()完整批次重写...")
-            response = writer.write(primary_node, research_data, chapter_num, related_nodes)
-        if response and response.strip() and len(response.strip()) >= 2000:
-            print(f"  [Pipeline] 改进版本 {len(response)} 字符，采用改进版")
-            return _normalize_md(response)
-        else:
-            print(f"  [Pipeline] 改进版本过短（{len(response) if response else 0} 字符），保留原始版本")
-            return original_content
-    except Exception as e:
-        err = str(e)
-        print(f"  [Pipeline] 改进写作失败: {err[:120]}，尝试writer.write()重写...")
-        # asyncio loop污染或page closed时，重置loop后用writer.write()完整批次重写
-        import asyncio as _asyncio2
+    result_box: list = []
+
+    def _run_in_clean_thread():
+        # 新线程没有 asyncio loop，Playwright Sync API 可以安全调用
         try:
-            _asyncio2.set_event_loop(None)
-        except Exception:
-            pass
+            if hasattr(writer.llm, "chat_multipart"):
+                resp = writer.llm.chat_multipart(WRITER_SYSTEM_PROMPT, improve_message)
+            else:
+                resp = writer.llm.chat([
+                    {"role": "system", "content": WRITER_SYSTEM_PROMPT},
+                    {"role": "user", "content": improve_message},
+                ])
+            if not resp or resp.strip() in ("RATE_LIMITED", "CHATGPT_ERROR") or \
+                    len(resp.strip()) < 2000 or _count_parts(resp) < 15:
+                parts_found = _count_parts(resp) if resp else 0
+                print(f"  [Pipeline] 改进版本不完整（{len(resp) if resp else 0}字符，{parts_found}/15 Parts），改用writer.write()完整批次重写...")
+                resp = writer.write(primary_node, research_data, chapter_num, related_nodes)
+            result_box.append(("ok", resp))
+        except Exception as exc:
+            result_box.append(("err", exc))
+
+    t = _threading.Thread(target=_run_in_clean_thread, daemon=True)
+    t.start()
+    t.join(timeout=1800)  # 最多等30分钟
+
+    if not result_box:
+        print(f"  [Pipeline] _apply_improvements 线程超时，保留原始版本")
+        return original_content
+
+    status, payload = result_box[0]
+    if status == "err":
+        print(f"  [Pipeline] 改进写作失败: {str(payload)[:120]}，尝试writer.write()重写...")
         try:
             response = writer.write(primary_node, research_data, chapter_num, related_nodes)
             if response and len(response.strip()) >= 2000:
@@ -560,6 +556,14 @@ def _apply_improvements(
                 return _normalize_md(response)
         except Exception as e2:
             print(f"  [Pipeline] writer.write()也失败: {e2}，使用原版本")
+        return original_content
+
+    response = payload
+    if response and response.strip() and len(response.strip()) >= 2000:
+        print(f"  [Pipeline] 改进版本 {len(response)} 字符，采用改进版")
+        return _normalize_md(response)
+    else:
+        print(f"  [Pipeline] 改进版本过短（{len(response) if response else 0} 字符），保留原始版本")
         return original_content
 
 
